@@ -3,3 +3,7 @@
 
 # Exclude dependencies
 node_modules/
+
+secret
+.idea/
+

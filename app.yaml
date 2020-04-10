@@ -1,1 +1,2 @@
+service: milton-processor
 runtime: nodejs10

@@ -20,7 +20,11 @@
   },
   "dependencies": {
     "express": "^4.16.3",
-    "typescript": "^3.0.1"
+    "typescript": "^3.0.1",
+    "readability": "github:mozilla/readability",
+    "jsdom": "^16.2.0",
+    "request-promise-native": "latest",
+    "dompurify": "^2.0.8"
   },
   "devDependencies": {
     "mocha": "^7.0.0",

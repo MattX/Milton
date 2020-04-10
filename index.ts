@@ -12,12 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 import express = require('express');
+import jsdomLib = require('jsdom');
+import domPurify = require('dompurify');
+import Readability = require("readability");
+import fs = require('fs');
 
 const PORT = Number(process.env.PORT) || 8080;
 const app = express();
+const JSDOM = jsdomLib.JSDOM;
 
-app.get("/", (req, res) => {
-  res.send("🎉 Hello TypeScript! 🎉");
+const secret = fs.readFileSync('secret', 'utf8');
+
+app.use(express.json());
+
+app.post("/extract", (req, res) => {
+  if (req.body.secret !== secret) {
+    res.status(403).send('');
+    return;
+  }
+  const page = req.body.page;
+  const clean = domPurify(new JSDOM('').window).sanitize(page);
+  const readable = new Readability(new JSDOM(clean).window.document).parse();
+  res.send(readable);
 });
 
 const server = app.listen(PORT, () => {
