@@ -44,7 +44,8 @@ fun Application.miltonManager() {
     val algoliaAccount = conf.getString("secrets.algoliaAccount")!!
     val algoliaSecret = conf.getString("secrets.algoliaSecret")!!
     val algoliaClient = AlgoliaClient(algoliaAccount, algoliaSecret)
-    val processorClient = ProcessorClient("http://localhost:8080", processorSecret)
+    val miltonProcessorHost = ConfigFactory.load().getString("milton.url")
+    val processorClient = ProcessorClient(miltonProcessorHost, processorSecret)
     val pageManager = PageManager(processorClient, algoliaClient, "milton-273820")
 
     install(DefaultHeaders)
@@ -61,6 +62,11 @@ fun Application.miltonManager() {
         }
         get("/list") {
             call.respond(pageManager.list())
+        }
+        get("/search") {
+            val searchQuery = call.request.queryParameters["q"] ?:
+                    return@get call.response.status(HttpStatusCode.BadRequest)
+            call.respond(algoliaClient.search(searchQuery))
         }
         post("/save") {
             val urlString = call.request.queryParameters["url"] ?:

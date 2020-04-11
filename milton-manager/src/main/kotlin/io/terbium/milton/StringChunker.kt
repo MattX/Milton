@@ -6,7 +6,6 @@ class StringChunker(private val chunkSize: Int) {
                 .map { it.trim() }
                 .filter { !it.isBlank() }
                 .flatMap { chunkWords(it) }
-        println(parts)
         return accumulate(parts.asSequence(), '\n')
     }
 
