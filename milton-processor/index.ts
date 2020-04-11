@@ -23,16 +23,17 @@ const JSDOM = jsdomLib.JSDOM;
 
 const secret = fs.readFileSync('secret', 'utf8');
 
-app.use(express.json());
+app.use(express.json({limit: '5mb'}));
 
 app.post("/extract", (req, res) => {
   if (req.body.secret !== secret) {
-    res.status(403).send('');
+    res.status(403).send('invalid secret');
     return;
   }
   const page = req.body.page;
-  const clean = domPurify(new JSDOM('').window).sanitize(page);
-  const readable = new Readability(new JSDOM(clean).window.document).parse();
+  const dom = new JSDOM(page).window
+  domPurify(dom).sanitize(page,  {WHOLE_DOCUMENT: true, IN_PLACE: true});
+  const readable = new Readability(dom.document).parse();
   res.send(readable);
 });
 
