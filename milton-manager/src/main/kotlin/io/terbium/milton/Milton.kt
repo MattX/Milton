@@ -20,11 +20,14 @@ import com.typesafe.config.ConfigFactory
 import io.ktor.application.Application
 import io.ktor.application.call
 import io.ktor.application.install
+import io.ktor.features.CORS
 import io.ktor.features.CallLogging
 import io.ktor.features.ContentNegotiation
 import io.ktor.features.DefaultHeaders
 import io.ktor.gson.gson
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.TextContent
 import io.ktor.response.respond
 import io.ktor.routing.get
 import io.ktor.routing.post
@@ -55,6 +58,9 @@ fun Application.miltonManager() {
             serializeNulls()
         }
     }
+    install(CORS) {
+        anyHost()
+    }
 
     routing {
         get("/") {
@@ -62,6 +68,11 @@ fun Application.miltonManager() {
         }
         get("/list") {
             call.respond(pageManager.list())
+        }
+        get("/content") {
+            val storageId = call.request.queryParameters["id"] ?:
+                    return@get call.response.status(HttpStatusCode.BadRequest)
+            call.respond(TextContent(pageManager.getContent(storageId), ContentType.Text.Html))
         }
         get("/search") {
             val searchQuery = call.request.queryParameters["q"] ?:

@@ -78,7 +78,10 @@ class PageManager(
         return RegisterResult.Success(registeredEntry)
     }
 
-    fun getContent(storageId: String): String = bucket.get(storageId).getContent().toString(Charsets.UTF_8)
+    fun getContent(storageId: String): String {
+        val storageKey = "$bucketPrefix/$storageId"
+        return bucket.get(storageKey).getContent().toString(Charsets.UTF_8)
+    }
 
     fun list(): List<RegisteredEntry> {
         val query = Query.newEntityQueryBuilder()

@@ -37,17 +37,19 @@ class AlgoliaClient(algoliaAccount: String, algoliaSecret: String) {
                 attributesToRetrieve = listOf(
                         Attribute("title"),
                         Attribute("siteName"),
-                        Attribute("url")
+                        Attribute("url"),
+                        Attribute("storageId")
                 )
         )
 
         val records = index.search(query).hits.map { AlgoliaRecord(
                 title = it.json["title"]!!.primitive.content,
                 siteName = it.json["siteName"]!!.primitive.content,
-                url = it.json["url"]!!.primitive.content
+                url = it.json["url"]!!.primitive.content,
+                storageId = it.json["storageId"]!!.primitive.content
         ) }
 
-        // Deduplicate records
+        // Deduplicate records, but keep them in order
         val urlSet = mutableSetOf<String>()
         val outputList = mutableListOf<AlgoliaRecord>()
         for (record in records) {
