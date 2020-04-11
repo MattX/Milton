@@ -1,26 +1,50 @@
 import React from 'react';
-import logo from './logo.svg';
 import './App.css';
+import {PostList} from "./PostList";
+import {getPostContent, listPosts, Post} from "./MiltonClient";
 
-function App() {
-  return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
-  );
+interface AppState {
+    posts: Post[] | null,
+    selectedPostUrl: string | null,
+    articleText: string | null,
+}
+
+class App extends React.Component<{}, AppState> {
+    constructor(props: {}) {
+        super(props);
+        this.state = { posts: null, selectedPostUrl: null, articleText: null }
+    }
+
+    componentDidMount(): void {
+        listPosts().then((posts) => this.setState({posts: posts}));
+    }
+
+    selectPost(url: string, storageId: string): void {
+        this.setState({ selectedPostUrl: url })
+        getPostContent(storageId).then((content) => this.setState({articleText: content}))
+    }
+
+    render() {
+        let articleHtml;
+        if (this.state.articleText === null) {
+            articleHtml = undefined;
+        } else {
+            articleHtml = {__html: this.state.articleText}
+        }
+        return (
+            <div className="App container-fluid">
+                <div className="row">
+                    <div className="col-md-4">
+                        <PostList posts={this.state.posts}
+                            selectedUrl={this.state.selectedPostUrl}
+                            selectPost={this.selectPost.bind(this)}/>
+                    </div>
+                    <div className="col-md-8" dangerouslySetInnerHTML={articleHtml}>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 }
 
 export default App;
