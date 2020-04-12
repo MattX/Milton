@@ -1,0 +1,16 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,400;0,700;1,400;1,700&family=Source+Serif+Pro:wght@400;700&display=swap');
+
+.App, .row, #root, html, body {
+    height: 100%;
+    margin-top: 0.3em;
+    font-family: 'Roboto', sans-serif;
+}
+
+#root {
+    /*background-color: #88ddff;*/
+}
+
+.postListContainer, .readerContainer {
+    height: 100%;
+    overflow-x: auto;
+}

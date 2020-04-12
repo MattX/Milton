@@ -1,41 +1,45 @@
 import React from 'react';
-import Spinner from 'react-bootstrap/Spinner'
 
 import './PostList.css';
 
 import {Post} from "./MiltonClient";
+import {Spinner} from "./Spinner";
 
 export interface PostListProps {
-    posts: Post[] | null,
-    selectedUrl: string | null,
-    selectPost: (url: string, storageId: string) => any,
+    posts: Post[] | undefined,
+    selectedUrl: string | undefined,
+    selectPost: (post: Post) => any,
 }
 
 const Listing = (props: PostListProps) => (
+    [<div></div>,
     <ul className="postListUl">{
-        props.posts!!.map((post) => (
-            <li key={post.url} className="postListItem">
-                <button className="postButton" onClick={() => props.selectPost(post.url, post.storageId)}>
-                    {props.selectedUrl === post.url ? <b>{post.title}</b> : post.title}
+        props.posts!!.map((post) => {
+            const selected = props.selectedUrl === post.url;
+            return <li key={post.url} className="postListItem">
+                <button className="postButton" onClick={() => props.selectPost(post)}>
+                <span className={selected ? "selectedName" : "unselectedName"}>
+                    {post.title} {selected ? " ⮜" : ""}
+                </span><br/>
+                    {post.site === undefined ? "" : "from " + post.site}
                 </button>
             </li>
-        ))
-    }</ul>
+        })
+    }</ul>]
 );
 
 export const PostList = (props: PostListProps) => {
     let inner;
     if (props.posts == null) {
-        inner = (
-            <Spinner animation="border" role="status">
-                <span className="sr-only">Loading...</span>
-            </Spinner>
-        )
+        inner = <Spinner/>
     } else {
         inner = Listing(props)
     }
 
     return (
-        <div className="post-list">{inner}</div>
+        <div className="postList">
+            <header className="postListHeader"><em>The Milton Library Assistant</em></header>
+            {inner}
+        </div>
     );
 };
