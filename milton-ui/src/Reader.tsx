@@ -24,10 +24,10 @@ export const Reader = (props: ReaderProps) => {
         articleHtml = {__html: props.articleHtml}
     }
     switch (props.readerState) {
-        case ReaderState.NONE: return <div></div>
+        case ReaderState.NONE: return <React.Fragment/>
         case ReaderState.LOADING: return <Spinner/>
         case ReaderState.LOADED: return <React.Fragment>
-            <h1>{props.articleTitle} <small><a href={props.articleUrl!!}>(Read original)</a></small></h1>
+            <h2>{props.articleTitle} <small><a href={props.articleUrl!!}>(Read original)</a></small></h2>
             <div className="reader" dangerouslySetInnerHTML={articleHtml}></div>
         </React.Fragment>
     }

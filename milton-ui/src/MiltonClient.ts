@@ -10,7 +10,7 @@ export interface Post {
 }
 
 export function listPosts(): Promise<Post[]>  {
-    return axios.get('http://localhost:8081/list')
+    return axios.get('https://milton.terbium.io/list')
         .then((posts: AxiosResponse<any[]>) => (
             posts.data.map((object) => ({
                 title: object.title,
@@ -22,6 +22,18 @@ export function listPosts(): Promise<Post[]>  {
 }
 
 export function getPostContent(storageId: string): Promise<string> {
-    return axios.get('http://localhost:8081/content?id=' + storageId)
+    return axios.get('https://milton.terbium.io/content?id=' + storageId)
         .then((response: AxiosResponse) => response.data)
+}
+
+export function search(query: String): Promise<Post[]> {
+    return axios.get('https://milton.terbium.io/search?q=' + query)
+        .then((posts: AxiosResponse<any[]>) => (
+            posts.data.map((object) => ({
+                title: object.title,
+                url: object.url,
+                site: object.site,
+                storageId: object.storageId,
+            }))
+        ));
 }

@@ -1,14 +1,15 @@
 import React from 'react';
 import './App.css';
 import {PostList} from "./PostList";
-import {getPostContent, listPosts, Post} from "./MiltonClient";
+import {getPostContent, listPosts, Post, search} from "./MiltonClient";
 import {Reader, ReaderState} from "./Reader";
 
 interface AppState {
     posts: Post[] | undefined,
     selectedPost: Post | undefined,
     selectedPostText: string | undefined,
-    readerState: ReaderState
+    readerState: ReaderState,
+    viewingSearch: boolean,
 }
 
 class App extends React.Component<{}, AppState> {
@@ -18,7 +19,8 @@ class App extends React.Component<{}, AppState> {
             posts: undefined,
             selectedPost: undefined,
             selectedPostText: undefined,
-            readerState: ReaderState.NONE
+            readerState: ReaderState.NONE,
+            viewingSearch: false,
         }
     }
 
@@ -32,14 +34,27 @@ class App extends React.Component<{}, AppState> {
             this.setState({selectedPostText: content, readerState: ReaderState.LOADED}))
     }
 
+    search(query: String): void {
+        this.setState({posts: undefined, viewingSearch: true});
+        search(query).then((posts) => this.setState({posts: posts}))
+    }
+
+    clearSearch(): void {
+        this.setState({posts: undefined, viewingSearch: false});
+        listPosts().then((posts) => this.setState({posts: posts}));
+    }
+
     render() {
+        const clearSearch = this.state.viewingSearch ? this.clearSearch.bind(this) : undefined;
         return (
             <div className="App container-fluid">
                 <div className="row">
                     <div className="col-md-4 postListContainer">
                         <PostList posts={this.state.posts}
                                   selectedUrl={this.state.selectedPost?.url}
-                                  selectPost={this.selectPost.bind(this)}/>
+                                  selectPost={this.selectPost.bind(this)}
+                                  search={this.search.bind(this)}
+                                  clearSearch={clearSearch}/>
                     </div>
                     <div className="col-md-8 readerContainer">
                         <Reader articleHtml={this.state.selectedPostText}

@@ -20,7 +20,8 @@
 
 .postListUl {
     list-style-type: none;
-    padding: 0;
+    padding-right: 10px;
+    padding-left: 10px;
 }
 
 .postListItem {
@@ -34,6 +35,11 @@
 
 .postListHeader {
     text-align: center;
+}
+
+.clear-search {
+    margin-top: 0.3em;
+    width: 100%;
 }
 
 * {
