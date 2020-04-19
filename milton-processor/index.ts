@@ -11,14 +11,13 @@ const JSDOM = jsdomLib.JSDOM;
 
 const serverSecret = fs.readFileSync('secret', 'utf8').trim();
 function authenticated(secret: string): boolean {
-  return secret == serverSecret
+  return secret === serverSecret
 }
 
 function decipher(htmlString: string): string {
   const dom = new JSDOM(htmlString).window
   domPurify(dom).sanitize(htmlString, {WHOLE_DOCUMENT: true, IN_PLACE: true});
-  const readable = new Readability(dom.document).parse();
-  return readable;
+  return new Readability(dom.document).parse();
 }
 
 app.use(express.json({limit: '5mb'}));
@@ -44,7 +43,7 @@ app.post("/percolate", (req, res) => {
     if (xhr.status === 200) {
       res.send(decipher(xhr.responseText));
     } else {
-      res.status(xhr.status).send('Unable to fetch page');
+      res.status(422).send(`Unable to fetch page... got code: ${xhr.status}`);
       return;
     }
   }
