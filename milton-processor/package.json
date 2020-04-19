@@ -1,22 +1,21 @@
 {
   "name": "appengine-typescript",
   "description": "An example TypeScript app running on Google App Engine.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "license": "Apache Version 2.0",
-  "author": "Google Inc.",
+  "author": "Bar Cart Coffee Club",
   "engines": {
     "node": ">=8.0.0"
   },
+  "main": "scribe.js",
   "scripts": {
-    "prepare": "npm run gcp-build",
-    "pretest": "npm run gcp-build",
     "test": "mocha test/*.test.js --exit",
-    "posttest": "npm run lint",
     "lint": "tslint -p .",
     "start": "node ./index.js",
     "gcp-build": "tsc -p .",
-    "deploy": "gcloud app deploy"
+    "deploy-appengine": "gcloud app deploy",
+    "deploy-function": "gcloud functions deploy scribe --runtime nodejs10 --allow-unauthenticated --trigger-http"
   },
   "dependencies": {
     "dompurify": "^2.0.8",
@@ -24,8 +23,7 @@
     "jsdom": "^16.2.0",
     "readability": "github:mozilla/readability",
     "request-promise-native": "latest",
-    "typescript": "^3.0.1",
-    "xmlhttprequest": "^1.8.0"
+    "typescript": "^3.8.1"
   },
   "devDependencies": {
     "mocha": "^7.0.0",
