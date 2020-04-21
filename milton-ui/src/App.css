@@ -14,7 +14,56 @@ html {
     /*background-color: #88ddff;*/
 }
 
-.postListContainer, .readerContainer {
-    height: 100%;
-    overflow-x: auto;
+.mainContent {
+    display: flex;
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    text-align: center;
+}
+
+.headerName {
+    width: 100%;
+}
+
+/* small media */
+@media not (min-width: 768px) {
+    .readerContainer {
+        width: 100%;
+    }
+
+    .postListContainer {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        transform: translateX(-100%);
+        transition: .3s ease-out;
+        background: white;
+    }
+
+    .postListContainer.inScope {
+        transform: translate(0);
+    }
+}
+
+@media (min-width: 768px) {
+    .postListContainer, .readerContainer {
+        height: 100%;
+        overflow-x: auto;
+    }
+
+    .postListContainer {
+        width: 350px;
+    }
+
+    .readerContainer {
+        width: calc(100% - 350px);
+        padding-left: 20px;
+    }
+
+    .showPostListBtn {
+        visibility: hidden;
+    }
 }
