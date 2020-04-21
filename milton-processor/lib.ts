@@ -4,13 +4,39 @@ import Readability = require('readability');
 
 const JSDOM = jsdomLib.JSDOM;
 
-export function readability(htmlString: string): string {
+export interface ReadableOutput {
+  title: string;
+  siteName: string;
+  byline: string;
+  excerpt: string;
+  length: number;
+  textContent: string;
+  content: string;
+}
+
+export function readability(htmlString: string): ReadableOutput {
   const dom = new JSDOM(htmlString).window
   domPurify(dom).sanitize(htmlString, {WHOLE_DOCUMENT: true, IN_PLACE: true});
   return new Readability(dom.document).parse();
 }
 
-export const fetcherFor = (() => {
+export function fetchArticle(url: string, callback: (content: string, err: Error) => void) {
+  fetcherFor(url).get(url, (resp) => {
+    let data = '';
+
+    resp.on('data', (chunk) => {
+      data += chunk;
+    });
+
+    resp.on('end', () => {
+      callback(data, undefined);
+    });
+  }).on("error", (err) => {
+    callback("", err);
+  });
+};
+
+const fetcherFor = (() => {
   const url = require('url');
   const adapters = {
     'http:': require('http'),
