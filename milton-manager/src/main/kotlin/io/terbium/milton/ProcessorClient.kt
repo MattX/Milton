@@ -2,6 +2,7 @@ package io.terbium.milton
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.features.HttpTimeout
 import io.ktor.client.features.json.GsonSerializer
 import io.ktor.client.features.json.JsonFeature
 import io.ktor.client.request.post
@@ -14,6 +15,10 @@ class ProcessorClient(processorHost: String, private val preprocessorSecret: Str
             serializer = GsonSerializer {
                 serializeNulls()
             }
+        }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 15_000
+            socketTimeoutMillis = 15_000
         }
     }
 
@@ -54,5 +59,3 @@ class ProcessorClient(processorHost: String, private val preprocessorSecret: Str
             val siteName: String?
     )
 }
-
-// {"title":"","byline":null,"dir":null,"content":"<div id=\"readability-page-1\" class=\"page\">hello</div>","textContent":"hello","length":5,"siteName":null}
