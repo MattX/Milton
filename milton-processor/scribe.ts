@@ -9,10 +9,12 @@ app.get("/", (req, res) => {
 });
 
 app.post("/extract", (req, res) => {
+  console.log(`Extracting URL: ${req.body.page}`)
   res.send(readability(req.body.page));
 });
 
 app.post("/simplify", (req, res) => {
+  console.log(`Simplifying URL: ${req.body.page}`)
   fetchArticle(req.body.page, (content, err) => {
     if (err) {
       res.status(422).send(`Unable to fetch page: ${err.message}`);
@@ -26,6 +28,7 @@ app.get("/simplify", (req, res) => {
   if (!req.query.page) {
     res.status(200).send(`Please specify the page parameter`)
   } else {
+    console.log(`Simplifying URL: ${req.query.page.toString()}`)
     fetchArticle(req.query.page.toString(), (content, err) => {
       if (err) {
         res.status(422).send(`Unable to fetch page: ${err.message}`)
