@@ -15,7 +15,7 @@
     "start": "node ./index.js",
     "gcp-build": "tsc -p .",
     "deploy-appengine": "gcloud app deploy",
-    "deploy-function": "gcloud functions deploy scribe --runtime nodejs10 --allow-unauthenticated --trigger-http"
+    "deploy-function": "gcloud functions deploy scribe --runtime nodejs10 --allow-unauthenticated --trigger-http --memory 512MB"
   },
   "dependencies": {
     "dompurify": "^2.0.8",
