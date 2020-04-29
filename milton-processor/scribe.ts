@@ -9,7 +9,6 @@ app.get("/", (req, res) => {
 });
 
 app.post("/extract", (req, res) => {
-  console.log(`Extracting URL: ${req.body.page}`)
   res.send(readability(req.body.page));
 });
 
