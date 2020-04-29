@@ -10,10 +10,6 @@ html {
     height: 99%;
 }
 
-#root {
-    /*background-color: #88ddff;*/
-}
-
 .mainContent {
     display: flex;
 }
@@ -29,7 +25,7 @@ html {
 }
 
 /* small media */
-@media not (min-width: 768px) {
+@media (max-width: 768px) {
     .readerContainer {
         width: 100%;
     }
@@ -65,5 +61,16 @@ html {
 
     .showPostListBtn {
         visibility: hidden;
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    html, #root {
+        background-color: #222;
+        color: #bbb;
+    }
+
+    .postListContainer {
+        background: #222;
     }
 }

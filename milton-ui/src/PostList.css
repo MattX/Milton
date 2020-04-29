@@ -33,6 +33,16 @@
     border-bottom: 2px solid lightgray;
 }
 
+@media (prefers-color-scheme: dark) {
+    .postListItem:not(:last-child) {
+        border-bottom: 2px solid darkgray;
+    }
+
+    .postButton, .btn.showPostListBtn {
+        color: #bbb;
+    }
+}
+
 .clear-search {
     margin-top: 0.3em;
     width: 100%;
