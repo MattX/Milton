@@ -65,3 +65,18 @@ appengine {
 }
 
 task run(dependsOn: appengineRun)
+
+task buildUi(type: Exec) {
+    workingDir '../milton-ui'
+    executable 'npm'
+    args 'run-script', 'build'
+}
+
+task copyUi(type: Sync) {
+    dependsOn buildUi
+    outputs.upToDateWhen { false }
+    from "../milton-ui/build"
+    into "src/main/webapp/ui"
+}
+
+tasks.getByPath(':war').dependsOn(copyUi)

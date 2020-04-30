@@ -9,8 +9,8 @@
     padding: 0;
 }
 
-.postButton:hover > span.unselectedName:after {
-    content: " ⮜";
+.postButton:hover > span.unselectedName:after, .postButton > span.selectedName:after {
+    content: " ←";
 }
 
 .postList {

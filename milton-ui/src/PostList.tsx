@@ -24,7 +24,7 @@ const Listing = (props: PostListProps) => (
             return <li key={post.url} className="postListItem">
                 <button className="postButton" onClick={() => props.selectPost(post)}>
                 <span className={selected ? "selectedName" : "unselectedName"}>
-                    {post.title} {selected ? " ⮜" : ""}
+                    {post.title}
                 </span><br/>
                     {post.site === undefined ? "" : "from " + post.site}
                 </button>

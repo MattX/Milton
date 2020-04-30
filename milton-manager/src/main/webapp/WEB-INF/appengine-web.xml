@@ -6,8 +6,10 @@
         <property name="java.util.logging.config.file" value="WEB-INF/logging.properties"/>
     </system-properties>
     <static-files>
-        <include path="/**.html"/>
-        <include path="/static/**.js"/>
-        <include path="/static/**.css"/>
+        <include path="/ui/static/**"/>
+        <include path="/ui/index.html"/>
+        <include path="/ui/favicon.png"/>
+        <include path="/ui/manifest.json"/>
     </static-files>
+    <public-root>/ui</public-root>
 </appengine-web-app>
