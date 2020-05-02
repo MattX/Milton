@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 Google LLC.
+ * Copyright 2020 The Milton Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -64,7 +64,7 @@ fun Application.miltonManager() {
 
     routing {
         get("/") {
-            call.respond("Hello")
+            call.respond("Hello! If you are seeing this, your static files aren't being served correctly.")
         }
         get("/list") {
             call.respond(pageManager.list())

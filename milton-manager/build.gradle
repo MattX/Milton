@@ -51,6 +51,7 @@ dependencies {
     implementation "com.google.cloud:google-cloud-logging-logback:$gce_logback_version"
     implementation "com.google.cloud:google-cloud-datastore:$gce_datastore_version"
     implementation "com.google.cloud:google-cloud-storage:$gce_storage_version"
+    implementation "org.jsoup:jsoup:1.13.1"
 
     providedCompile "com.google.appengine:appengine:$appengine_version"
 
