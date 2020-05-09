@@ -43,12 +43,11 @@ import kotlin.Result.Companion.success
 
 fun Application.miltonManager() {
     val conf = ConfigFactory.load("secrets")
-    val processorSecret = conf.getString("secrets.miltonPreprocessor")!!
     val algoliaAccount = conf.getString("secrets.algoliaAccount")!!
     val algoliaSecret = conf.getString("secrets.algoliaSecret")!!
     val algoliaClient = AlgoliaClient(algoliaAccount, algoliaSecret)
     val miltonProcessorHost = ConfigFactory.load().getString("milton.url")
-    val processorClient = ProcessorClient(miltonProcessorHost, processorSecret)
+    val processorClient = ProcessorClient(miltonProcessorHost)
     val pageManager = PageManager(processorClient, algoliaClient, "milton-273820")
 
     install(DefaultHeaders)

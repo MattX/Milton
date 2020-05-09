@@ -23,7 +23,7 @@ import io.ktor.client.features.json.GsonSerializer
 import io.ktor.client.features.json.JsonFeature
 import io.ktor.client.request.post
 
-class ProcessorClient(processorHost: String, private val preprocessorSecret: String) {
+class ProcessorClient(processorHost: String) {
     private val processorUrl = "$processorHost/extract"
     private val json = io.ktor.client.features.json.defaultSerializer()
     private val httpClient = HttpClient(OkHttp) {
@@ -40,12 +40,11 @@ class ProcessorClient(processorHost: String, private val preprocessorSecret: Str
 
     suspend fun process(content: String): ProcessedPage {
         return httpClient.post<ProcessorOutput>(processorUrl) {
-            body = json.write(ProcessorInput(preprocessorSecret, content))
+            body = json.write(ProcessorInput(content))
         }.toProcessedPage()
     }
 
     private data class ProcessorInput(
-        val secret: String,
         val page: String
     )
 
