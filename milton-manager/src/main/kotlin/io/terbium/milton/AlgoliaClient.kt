@@ -22,8 +22,14 @@ import com.algolia.search.model.search.Query
 import kotlinx.serialization.json.json
 import java.security.MessageDigest
 import java.util.*
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class AlgoliaClient(algoliaAccount: String, algoliaSecret: String) {
+@Singleton
+class AlgoliaClient @Inject constructor(
+        @AlgoliaAccount algoliaAccount: String,
+        @AlgoliaSecret algoliaSecret: String
+) {
     private val client = ClientSearch(ApplicationID(algoliaAccount), APIKey(algoliaSecret))
     private val indexName = IndexName("posts")
     private val index = client.initIndex(indexName)

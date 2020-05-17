@@ -22,8 +22,11 @@ import io.ktor.client.features.HttpTimeout
 import io.ktor.client.features.json.GsonSerializer
 import io.ktor.client.features.json.JsonFeature
 import io.ktor.client.request.post
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class ProcessorClient(processorHost: String) {
+@Singleton
+class ProcessorClient @Inject constructor(@ProcessorHost processorHost: String) {
     private val processorUrl = "$processorHost/extract"
     private val json = io.ktor.client.features.json.defaultSerializer()
     private val httpClient = HttpClient(OkHttp) {

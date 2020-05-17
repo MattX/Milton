@@ -27,16 +27,21 @@ import io.ktor.client.statement.readText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.terbium.milton.FirebaseExtensions.getNullableString
+import io.terbium.milton.FirebaseExtensions.setNullableString
 import org.slf4j.LoggerFactory
 import java.net.URL
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.*
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class PageManager(
+@Singleton
+class PageManager @Inject constructor(
         private val processorClient: ProcessorClient,
         private val algoliaClient: AlgoliaClient,
-        projectName: String
+        @ProjectName projectName: String
 ) {
     private val httpClient = HttpClient(OkHttp)
     private val firebase = DatastoreOptions.getDefaultInstance().toBuilder()
@@ -132,18 +137,6 @@ class PageManager(
                 datetime = getTimestamp("date").toDate().toInstant(),
                 siteName = getNullableString("siteName")
         )
-
-        private fun<K : IncompleteKey> FullEntity.Builder<K>.setNullableString(key: String, value: String?): FullEntity.Builder<K> {
-            return apply {
-                when (value) {
-                    null -> setNull(key)
-                    else -> set(key, value)
-                }
-            }
-        }
-
-        private fun Entity.getNullableString(key: String): String? =
-            if (isNull(key)) { null } else { getString(key) }
 
         private val logger = LoggerFactory.getLogger(PageManager::class.java)
     }

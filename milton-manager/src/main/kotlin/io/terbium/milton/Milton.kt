@@ -16,7 +16,7 @@
 
 package io.terbium.milton
 
-import com.typesafe.config.ConfigFactory
+import com.google.inject.Guice
 import io.ktor.application.Application
 import io.ktor.application.call
 import io.ktor.application.install
@@ -38,73 +38,85 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.MalformedURLException
 import java.net.URL
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlin.Result.Companion.failure
 import kotlin.Result.Companion.success
 
-fun Application.miltonManager() {
-    val conf = ConfigFactory.load("secrets")
-    val algoliaAccount = conf.getString("secrets.algoliaAccount")!!
-    val algoliaSecret = conf.getString("secrets.algoliaSecret")!!
-    val algoliaClient = AlgoliaClient(algoliaAccount, algoliaSecret)
-    val miltonProcessorHost = ConfigFactory.load().getString("milton.url")
-    val processorClient = ProcessorClient(miltonProcessorHost)
-    val pageManager = PageManager(processorClient, algoliaClient, "milton-273820")
-
-    install(DefaultHeaders)
-    install(CallLogging)
-    install(ContentNegotiation) {
-        gson {
-            serializeNulls()
-        }
-    }
-    install(CORS) {
-        anyHost()
-    }
-
-    routing {
-        get("/") {
-            call.respond("Hello! If you are seeing this, your static files aren't being served correctly.")
-        }
-        get("/list") {
-            call.respond(pageManager.list())
-        }
-        get("/content") {
-            val storageId = call.request.queryParameters["id"] ?:
-                    return@get call.response.status(HttpStatusCode.BadRequest)
-            call.respond(TextContent(pageManager.getContent(storageId), ContentType.Text.Html))
-        }
-        get("/search") {
-            val searchQuery = call.request.queryParameters["q"] ?:
-                    return@get call.response.status(HttpStatusCode.BadRequest)
-            call.respond(algoliaClient.search(searchQuery))
-        }
-        post("/save") {
-            val urlString = call.request.queryParameters["url"] ?:
-                    return@post call.response.status(HttpStatusCode.BadRequest)
-            val parsedUrl = withContext (Dispatchers.IO) {
-                try {
-                   success(URL(urlString))
-                } catch (e: MalformedURLException) {
-                    failure<URL>(e)
-                }
+@Singleton
+class Milton @Inject constructor(
+        private val algoliaClient: AlgoliaClient,
+        private val pageManager: PageManager
+) {
+    fun Application.setup() {
+        install(DefaultHeaders)
+        install(CallLogging)
+        install(ContentNegotiation) {
+            gson {
+                serializeNulls()
             }
-            if (parsedUrl.isFailure)
-                return@post call.respond(HttpStatusCode.BadRequest, "invalid url: $urlString")
-            val url = parsedUrl.getOrNull()!!
-            when (val result = pageManager.register(url)) {
-                is PageManager.RegisterResult.Unsupported ->
-                    call.respond(HttpStatusCode.UnprocessableEntity, "can't process page at $urlString: ${result.cause}")
-                is PageManager.RegisterResult.FetchError ->
-                    call.respond(HttpStatusCode.UnprocessableEntity, "can't fetch page at $urlString: ${result.cause}")
-                is PageManager.RegisterResult.Success -> call.respond(result.entry)
+        }
+        install(CORS) {
+            anyHost()
+        }
+
+        routing {
+            get("/") {
+                call.respond("Hello! If you are seeing this, your static files aren't being served correctly.")
+            }
+            get("/list") {
+                call.respond(pageManager.list())
+            }
+            get("/content") {
+                val storageId = call.request.queryParameters["id"]
+                        ?: return@get call.response.status(HttpStatusCode.BadRequest)
+                call.respond(TextContent(pageManager.getContent(storageId), ContentType.Text.Html))
+            }
+            get("/search") {
+                val searchQuery = call.request.queryParameters["q"]
+                        ?: return@get call.response.status(HttpStatusCode.BadRequest)
+                call.respond(algoliaClient.search(searchQuery))
+            }
+            post("/save") {
+                val urlString = call.request.queryParameters["url"]
+                        ?: return@post call.response.status(HttpStatusCode.BadRequest)
+                val parsedUrl = withContext(Dispatchers.IO) {
+                    try {
+                        success(URL(urlString))
+                    } catch (e: MalformedURLException) {
+                        failure<URL>(e)
+                    }
+                }
+                if (parsedUrl.isFailure)
+                    return@post call.respond(HttpStatusCode.BadRequest, "invalid url: $urlString")
+                val url = parsedUrl.getOrNull()!!
+                when (val result = pageManager.register(url)) {
+                    is PageManager.RegisterResult.Unsupported ->
+                        call.respond(HttpStatusCode.UnprocessableEntity,
+                                "can't process page at $urlString: ${result.cause}")
+                    is PageManager.RegisterResult.FetchError ->
+                        call.respond(HttpStatusCode.UnprocessableEntity,
+                                "can't fetch page at $urlString: ${result.cause}")
+                    is PageManager.RegisterResult.Success -> call.respond(result.entry)
+                }
             }
         }
     }
 }
 
-fun main(args: Array<String>) {
+fun Application.miltonManager() {
+    val milton = Guice.createInjector(MiltonManagerModule()).getInstance(Milton::class.java)!!
+    with (milton) {
+        setup()
+    }
+}
+
+fun main() {
+    val milton = Guice.createInjector(MiltonManagerModule()).getInstance(Milton::class.java)!!
     val server = embeddedServer(Netty, 8080) {
-        miltonManager()
+        with (milton) {
+            setup()
+        }
     }
     server.start(wait = true)
 }
