@@ -12,11 +12,11 @@ app.post("/extract", (req, res) => {
   res.send(readability(req.body.page));
 });
 
-const CORS_Client = 'https://cdn.dsouza.io'
+const CorsClient = 'http://localhost:8080' // 'https://cdn.dsouza.io'
 
 app.options("/simplify", (req, res) => {
   // Allow CORS requests from CDN
-  res.set('Access-Control-Allow-Origin', CORS_Client);
+  res.set('Access-Control-Allow-Origin', CorsClient);
   res.set('Access-Control-Allow-Methods', 'POST');
   res.set('Access-Control-Allow-Headers', 'Content-Type');
   res.set('Access-Control-Max-Age', '3600');
@@ -25,7 +25,7 @@ app.options("/simplify", (req, res) => {
 
 app.post("/simplify", (req, res) => {
   console.log(`Simplifying URL: ${req.body.page}`);
-  res.set('Access-Control-Allow-Origin', CORS_Client);
+  res.set('Access-Control-Allow-Origin', CorsClient);
 
   fetchArticle(req.body.page, (content, err) => {
     if (err) {
