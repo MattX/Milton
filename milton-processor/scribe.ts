@@ -42,6 +42,7 @@ app.post("/simplify", async (req, res) => {
     readability.fetchArticle(url, (content, err) => {
       console.log(`Fetching contents of ${url}`);
       if (err) {
+        console.warn(`Failed to fetch ${url} with error: ${err.message}`);
         res.status(422).send(`Unable to fetch page: ${err.message}`);
       } else {
         console.log(`Saving contents of ${url}`);

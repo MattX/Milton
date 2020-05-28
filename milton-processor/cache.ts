@@ -1,5 +1,6 @@
 import gcs = require('@google-cloud/storage');
 import crypto = require('crypto');
+import base64url = require('base64url');
 import { ENVIRONMENT, CONFIG } from './scribe';
 
 
@@ -22,11 +23,11 @@ function createStorageClient() {
 }
 
 function sha256Hash(url: string): string {
-  return crypto.createHash('sha256').update(url).digest('base64');
+  return base64url.default.fromBase64(crypto.createHash('sha256').update(url).digest('base64'));
 }
 
 function urlToKey(url: string): string {
-  return `${CONFIG.cache_prefix}/${sha256Hash(url)}.json`
+  return `${CONFIG.cache_prefix}/${sha256Hash(url)}.json`;
 }
 
 function urlToFile(url: string): gcs.File {
@@ -42,7 +43,7 @@ export function save(url: string, contents: Manuscript) {
     file.setMetadata({contentType: 'application/json'});
     console.log(`Saved contents of URL (${url}) to cache`);
   }).catch((err) => {
-    console.log(`Failed to save contents of URL (${url}) with error: ${err.message}`);
+    console.error(`Failed to save contents of URL (${url}) with error: ${err.message}`);
   });
 }
 
@@ -52,7 +53,7 @@ export function fetch(url: string): Promise<Manuscript> {
     const fileContents = data[0].toString();
     return JSON.parse(fileContents) as Manuscript;
   }).catch((err) => {
-    console.log(`Failed to fetch contents of URL (${url}) with error: ${err.message}`)
+    console.warn(`Failed to fetch contents of URL (${url}) with error: ${err.message}`)
     throw err;
   });
   return cachedManuscript;
@@ -63,7 +64,7 @@ export function isCached(url: string): Promise<boolean> {
   const exists = file.exists().then((data) => {
     return data[0];
   }).catch((err) => {
-    console.log(`Error checking for cached version of ${url}: ${err.message}`);
+    console.error(`Error checking for cached version of ${url}: ${err.message}`);
     return false;
   });
   return exists;
