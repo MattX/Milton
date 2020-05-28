@@ -4,7 +4,7 @@ import Readability = require('readability');
 
 const JSDOM = jsdomLib.JSDOM;
 
-export interface ReadableOutput {
+export interface ParsedOutput {
   title: string;
   siteName: string;
   byline: string;
@@ -14,7 +14,7 @@ export interface ReadableOutput {
   content: string;
 }
 
-export function readability(htmlString: string): ReadableOutput {
+export function parse(htmlString: string): ParsedOutput {
   const dom = new JSDOM(htmlString).window
   domPurify(dom).sanitize(htmlString, {WHOLE_DOCUMENT: true, IN_PLACE: true});
   return new Readability(dom.document).parse();

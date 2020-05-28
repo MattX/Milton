@@ -18,8 +18,10 @@
     "deploy-function": "gcloud functions deploy scribe --runtime nodejs10 --allow-unauthenticated --trigger-http --memory 512MB"
   },
   "dependencies": {
+    "@google-cloud/storage": "^5.0.1",
     "dompurify": "^2.0.8",
     "express": "^4.16.3",
+    "fast-crc32c": "^2.0.0",
     "jsdom": "^16.2.0",
     "readability": "github:mozilla/readability",
     "request-promise-native": "latest",

@@ -1,5 +1,9 @@
-# Exclude compiled .js files
-*.js
-
 # Exclude dependencies
 node_modules/
+
+# Service account key file
+key.json
+
+# Git
+.git
+.gitignore

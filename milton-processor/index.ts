@@ -1,10 +1,8 @@
 import fs = require('fs');
-import { app } from "./scribe";
+import { app, CONFIG } from "./scribe";
 
-const PORT = Number(process.env.PORT) || 8080;
-
-const server = app.listen(PORT, () => {
-  console.log(`App listening on port ${PORT}`);
+const server = app.listen(CONFIG.node_port, () => {
+  console.log(`App listening on port ${CONFIG.node_port}`);
 });
 
 module.exports = server;
