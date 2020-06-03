@@ -1,5 +1,10 @@
 import express = require('express')
-import { ReadableOutput, readability, fetchArticle } from "./lib";
+import * as readability from "./readability";
+import * as cache from "./cache";
+
+import configFile from './config.json';
+export const ENVIRONMENT = process.env.NODE_ENV || 'dev';
+export const CONFIG = configFile[ENVIRONMENT];
 
 export const app = express();
 app.use(express.json({limit: '5mb'}));
@@ -9,81 +14,50 @@ app.get("/", (req, res) => {
 });
 
 app.post("/extract", (req, res) => {
-  res.send(readability(req.body.page));
+  res.send(readability.parse(req.body.page));
 });
-
-const CORS_Client = 'https://cdn.dsouza.io'
 
 app.options("/simplify", (req, res) => {
   // Allow CORS requests from CDN
-  res.set('Access-Control-Allow-Origin', CORS_Client);
+  res.set('Access-Control-Allow-Origin', CONFIG.cors_client);
   res.set('Access-Control-Allow-Methods', 'POST');
   res.set('Access-Control-Allow-Headers', 'Content-Type');
   res.set('Access-Control-Max-Age', '3600');
   res.status(204).send('');
 })
 
-app.post("/simplify", (req, res) => {
-  console.log(`Simplifying URL: ${req.body.page}`);
-  res.set('Access-Control-Allow-Origin', CORS_Client);
+app.post("/simplify", async (req, res) => {
+  const url = req.body.page;
+  console.log(`Simplifying URL: ${url}`);
+  res.set('Access-Control-Allow-Origin', CONFIG.cors_client);
 
-  fetchArticle(req.body.page, (content, err) => {
-    if (err) {
-      res.status(422).send(`Unable to fetch page: ${err.message}`);
-    } else {
-      res.send(readability(content));
-    }
-  });
-});
+  let manuscript: cache.Manuscript;
+  const articleCached = await cache.isCached(url);
 
-app.get("/simplify", (req, res) => {
-  if (!req.query.page) {
-    res.status(200).send(`Please specify the page parameter`)
+  if (articleCached) {
+    console.log(`Found cached version of ${url}`);
+    manuscript = await cache.fetch(url);
+    res.send(manuscript);
   } else {
-    console.log(`Simplifying URL: ${req.query.page.toString()}`)
-    fetchArticle(req.query.page.toString(), (content, err) => {
+    readability.fetchArticle(url, (content, err) => {
+      console.log(`Fetching contents of ${url}`);
       if (err) {
-        res.status(422).send(`Unable to fetch page: ${err.message}`)
+        console.warn(`Failed to fetch ${url} with error: ${err.message}`);
+        res.status(422).send(`Unable to fetch page: ${err.message}`);
       } else {
-        const simplified: ReadableOutput = readability(content);
-
-        const simpleArticleHtml = `
-          <html>
-            <head>
-              <title>Milton Scribe</title>
-              <style type="text/css">
-                body {
-                  margin: 40px auto;
-                  max-width: 650px;
-                  line-height: 1.6;
-                  font-size: 18px;
-                  color: #444;
-                  background-color: #EEEEEE;
-                  padding: 0 10px;
-                }
-                h1,h2,h3 {
-                  line-height:1.2;
-                }
-                @media (prefers-color-scheme: dark) {
-                  body {
-                      color: #CCCCCC;
-                      background-color: #121212;
-                  }
-                  a {
-                    color: #BB86FC;
-                  }
-              }
-              </style>
-            </head>
-            <body>
-              <div class="reader">
-                <h1>${simplified.title}</h1>
-                ${simplified.content}
-              </div>
-            </body>
-          </html>`
-
-        res.send(simpleArticleHtml);
+        console.log(`Saving contents of ${url}`);
+        const po: readability.ParsedOutput = readability.parse(content);
+        manuscript = {
+          url,
+          title: po.title,
+          siteName: po.siteName,
+          byline: po.byline,
+          excerpt: po.excerpt,
+          textContent: po.textContent,
+          content: po.content,
+        };
+        cache.save(url, manuscript);
+        res.send(manuscript);
       }
     });
   }

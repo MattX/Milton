@@ -1,0 +1,13 @@
+{
+  "dev": {
+      "cors_client": "http://localhost:8080",
+      "access_key": "key.json",
+      "cache_prefix": "dev",
+      "node_port": 8081
+  },
+  "prod": {
+      "cors_client": "https://cdn.dsouza.io",
+      "cache_prefix": "prod",
+      "node_port": 8080
+  }
+}
