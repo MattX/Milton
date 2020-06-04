@@ -6,7 +6,7 @@ export interface IdentityButtonProps {
     onLoginSuccess: (response: GoogleLoginResponse | GoogleLoginResponseOffline) => void;
     onLoginFailure: (error: any) => void,
     onLogout: (_: any) => void,
-    testAuthenticate: () => void,
+    testAuthenticate: (() => void) | null,
 }
 
 export function IdentityButton(props: IdentityButtonProps) {
@@ -22,8 +22,10 @@ export function IdentityButton(props: IdentityButtonProps) {
             cookiePolicy={'single_host_origin'}
         />;
     }
+    const testButton = props.testAuthenticate ?
+        <button onClick={props.testAuthenticate} className="btn btn-outline-primary">Test authentication</button> : null;
     return <>
         {logButton}
-        <button onClick={props.testAuthenticate} className="btn btn-outline-primary">Test authentication</button>
+        {testButton}
     </>
 }

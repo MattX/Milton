@@ -101,15 +101,15 @@ class App extends React.Component<{}, AppState> {
                 <AlertMessages messages={this.state.messages} />
                 <header className="header">
                     <button className="btn showPostListBtn" onClick={this.togglePostList.bind(this)}>☰</button>
+                    <h3 className="headerName">The Milton Library Assistant</h3>
+                </header>
+                <div className="mainContent">
+                <div className={"postListContainer" + (this.state.showingPostList ? " inScope" : "")}>
                     <IdentityButton loggedIn={this.state.loggedIn}
                                     onLoginSuccess={this.logIn.bind(this)}
                                     onLoginFailure={this.loginFailure.bind(this)}
                                     onLogout={this.logOut.bind(this)}
                                     testAuthenticate={this.testAuthenticate.bind(this)} />
-                    <h3 className="headerName">The Milton Library Assistant</h3>
-                </header>
-                <div className="mainContent">
-                <div className={"postListContainer" + (this.state.showingPostList ? " inScope" : "")}>
                     <PostList posts={this.state.posts}
                               selectedUrl={this.state.selectedPost?.url}
                               selectPost={this.selectPost.bind(this)}

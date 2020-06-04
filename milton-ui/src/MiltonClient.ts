@@ -1,7 +1,6 @@
 import {AxiosError, AxiosResponse} from "axios";
 
-// const MILTON_MANAGER_HOST = 'https://milton.terbium.io';
-const MILTON_MANAGER_HOST = 'http://localhost:8080';
+const MILTON_MANAGER_HOST = 'https://milton.terbium.io';
 const axios = require('axios').default;
 
 export interface Post {

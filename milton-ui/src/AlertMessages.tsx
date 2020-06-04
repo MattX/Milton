@@ -2,6 +2,8 @@ import React from 'react';
 import {Alert} from "react-bootstrap";
 import {Message} from "./AlertMessageManager";
 
+import "./AlertMessages.css";
+
 export interface AlertMessagesProps {
     messages: Message[];
 }
