@@ -47,15 +47,18 @@ app.post("/simplify", async (req, res) => {
       } else {
         console.log(`Saving contents of ${url}`);
         const po: readability.ParsedOutput = readability.parse(content);
-        manuscript = {
-          url,
+        manuscript = new cache.Manuscript({
+          url: url,
           title: po.title,
           siteName: po.siteName,
           byline: po.byline,
           excerpt: po.excerpt,
           textContent: po.textContent,
           content: po.content,
-        };
+          cachedAt: Date.now(),
+          updatedAt: Date.now(),
+          tags: [],
+        });
         cache.save(url, manuscript);
         res.send(manuscript);
       }
