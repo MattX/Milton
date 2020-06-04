@@ -53,14 +53,13 @@ import kotlin.Result.Companion.success
 class Milton @Inject constructor(
         private val algoliaClient: AlgoliaClient,
         private val pageManager: PageManager,
-        // private val botAuthenticator: BotAuthenticator,
+        private val botAuthenticator: BotAuthenticator,
         private val googleAuthenticator: GoogleAuthenticator
 ) {
     fun Application.setup() {
         install(Authentication) {
             miltonAuthentication {
-                //botAuthenticator = this@Milton.botAuthenticator
-                botAuthenticator = object : BotAuthenticator(mapOf()) {}
+                botAuthenticator = this@Milton.botAuthenticator
                 googleAuthenticator = this@Milton.googleAuthenticator
             }
         }

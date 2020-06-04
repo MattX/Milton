@@ -8,7 +8,6 @@
     <static-files>
         <include path="/ui/static/**"/>
         <include path="/ui/index.html"/>
-        <include path="/ui/privacy-policy.html"/>
         <include path="/ui/favicon.png"/>
         <include path="/ui/manifest.json"/>
     </static-files>
