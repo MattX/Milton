@@ -7,7 +7,7 @@
             <level>INFO</level>
         </filter>
         <log>application.log</log> <!-- Optional : default java.log -->
-        <flushLevel>WARN</flushLevel> <!-- Optional : default ERROR -->
+        <flushLevel>ERROR</flushLevel> <!-- Optional : default ERROR -->
     </appender>
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
@@ -15,7 +15,7 @@
         </encoder>
     </appender>
 
-    <root level="trace">
+    <root level="info">
         <!-- Add Console output for local dev -->
         <appender-ref ref="STDOUT"/>
         <!-- Add Cloud Appender to root output-->

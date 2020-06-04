@@ -10,9 +10,9 @@ class GoogleAuthenticator @Inject constructor(@GoogleAuthClientId private val cl
     private val transport = GoogleNetHttpTransport.newTrustedTransport()
     private val jsonFactory = GsonFactory.getDefaultInstance()
 
-    fun verify(idTokenString: String): Boolean {
-        val verifier = GoogleIdTokenVerifier.Builder(transport, jsonFactory) // Specify the CLIENT_ID of the app that accesses the backend:
-                .setAudience(listOf(clientId)) // Or, if multiple clients access the backend:
+    fun authenticate(idTokenString: String): Boolean {
+        val verifier = GoogleIdTokenVerifier.Builder(transport, jsonFactory)
+                .setAudience(listOf(clientId))
                 .build()
 
         val idToken: GoogleIdToken? = verifier.verify(idTokenString)

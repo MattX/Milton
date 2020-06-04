@@ -20,12 +20,17 @@ import com.google.inject.Guice
 import io.ktor.application.Application
 import io.ktor.application.call
 import io.ktor.application.install
+import io.ktor.application.log
+import io.ktor.auth.Authentication
+import io.ktor.auth.authenticate
 import io.ktor.features.CORS
 import io.ktor.features.CallLogging
 import io.ktor.features.ContentNegotiation
 import io.ktor.features.DefaultHeaders
 import io.ktor.gson.gson
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.response.respond
@@ -46,9 +51,18 @@ import kotlin.Result.Companion.success
 @Singleton
 class Milton @Inject constructor(
         private val algoliaClient: AlgoliaClient,
-        private val pageManager: PageManager
+        private val pageManager: PageManager,
+        // private val botAuthenticator: BotAuthenticator,
+        private val googleAuthenticator: GoogleAuthenticator
 ) {
     fun Application.setup() {
+        install(Authentication) {
+            miltonAuthentication {
+                //botAuthenticator = this@Milton.botAuthenticator
+                botAuthenticator = object : BotAuthenticator(mapOf()) {}
+                googleAuthenticator = this@Milton.googleAuthenticator
+            }
+        }
         install(DefaultHeaders)
         install(CallLogging)
         install(ContentNegotiation) {
@@ -58,6 +72,7 @@ class Milton @Inject constructor(
         }
         install(CORS) {
             anyHost()
+            header(HttpHeaders.Authorization)
         }
 
         routing {
@@ -98,6 +113,11 @@ class Milton @Inject constructor(
                         call.respond(HttpStatusCode.UnprocessableEntity,
                                 "can't fetch page at $urlString: ${result.cause}")
                     is PageManager.RegisterResult.Success -> call.respond(result.entry)
+                }
+            }
+            authenticate {
+                get("/testAuth") {
+                    call.respond("all good!")
                 }
             }
         }
