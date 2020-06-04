@@ -1,6 +1,8 @@
 import GoogleLogin, {GoogleLoginResponse, GoogleLoginResponseOffline} from "react-google-login";
 import React from "react";
 
+import "./IdentityButton.css";
+
 export interface IdentityButtonProps {
     loggedIn: boolean;
     onLoginSuccess: (response: GoogleLoginResponse | GoogleLoginResponseOffline) => void;
@@ -22,10 +24,16 @@ export function IdentityButton(props: IdentityButtonProps) {
             cookiePolicy={'single_host_origin'}
         />;
     }
-    const testButton = props.testAuthenticate ?
-        <button onClick={props.testAuthenticate} className="btn btn-outline-primary">Test authentication</button> : null;
-    return <>
-        {logButton}
-        {testButton}
-    </>
+    const testButton = <>
+        {props.testAuthenticate ? <>
+            <span style={{minWidth: "1em", display: "inline-block"}} />
+            <button onClick={props.testAuthenticate} className="btn btn-outline-primary">Test authentication</button>
+        </> : null}
+    </>;
+    return <div className="identityButtonOuter">
+        <div className="identityButtonInner">
+            {logButton}
+            {testButton}
+        </div>
+    </div>
 }

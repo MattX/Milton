@@ -109,7 +109,7 @@ class App extends React.Component<{}, AppState> {
                                     onLoginSuccess={this.logIn.bind(this)}
                                     onLoginFailure={this.loginFailure.bind(this)}
                                     onLogout={this.logOut.bind(this)}
-                                    testAuthenticate={this.testAuthenticate.bind(this)} />
+                                    testAuthenticate={null} />
                     <PostList posts={this.state.posts}
                               selectedUrl={this.state.selectedPost?.url}
                               selectPost={this.selectPost.bind(this)}

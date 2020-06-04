@@ -4,21 +4,7 @@ import './index.css';
 import App from './App';
 import * as serviceWorker from './serviceWorker';
 
-const lightTheme = require('bootswatch/dist/flatly/bootstrap.css').toString();
-const darkTheme = require('bootswatch/dist/darkly/bootstrap.css').toString();
-
-function injectCss(stylesheetText: string) {
-    const style = document.createElement("style");
-    style.setAttribute("type", "text/css");
-    style.appendChild(document.createTextNode(stylesheetText));
-    document.getElementsByTagName('head')[0].appendChild(style);
-}
-
-if (window.matchMedia("(prefers-color-scheme: dark)")) {
-    injectCss(darkTheme);
-} else {
-    injectCss(lightTheme);
-}
+import 'bootstrap/dist/css/bootstrap.css';
 
 ReactDOM.render(
   <React.StrictMode>

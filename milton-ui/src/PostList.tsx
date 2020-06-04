@@ -68,7 +68,7 @@ export class PostList extends React.Component<PostListProps, SearchState> {
                         <input type="text" className="form-control" placeholder="Search"
                            value={this.state.query} onChange={this.updateQuery.bind(this)}/>
                         <div className="input-group-append" id="button-addon4">
-                            <button className="btn btn-outline-primary" type="submit">Search</button>
+                            <button className="btn btn-primary" type="submit">Search</button>
                         </div>
                     </div>
                 </form>
