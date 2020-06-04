@@ -23,6 +23,7 @@ import io.ktor.application.install
 import io.ktor.application.log
 import io.ktor.auth.Authentication
 import io.ktor.auth.authenticate
+import io.ktor.auth.authentication
 import io.ktor.features.CORS
 import io.ktor.features.CallLogging
 import io.ktor.features.ContentNegotiation
@@ -92,32 +93,40 @@ class Milton @Inject constructor(
                         ?: return@get call.response.status(HttpStatusCode.BadRequest)
                 call.respond(algoliaClient.search(searchQuery))
             }
-            post("/save") {
-                val urlString = call.request.queryParameters["url"]
-                        ?: return@post call.response.status(HttpStatusCode.BadRequest)
-                val parsedUrl = withContext(Dispatchers.IO) {
-                    try {
-                        success(URL(urlString))
-                    } catch (e: MalformedURLException) {
-                        failure<URL>(e)
+
+            authenticate {
+                post("/save") {
+                    if (call.authentication.principal == null) {
+                        log.warn("unauthenticated save request!")
+                    }
+                    val urlString = call.request.queryParameters["url"]
+                            ?: return@post call.response.status(HttpStatusCode.BadRequest)
+                    val parsedUrl = withContext(Dispatchers.IO) {
+                        try {
+                            success(URL(urlString))
+                        } catch (e: MalformedURLException) {
+                            failure<URL>(e)
+                        }
+                    }
+                    if (parsedUrl.isFailure)
+                        return@post call.respond(HttpStatusCode.BadRequest, "invalid url: $urlString")
+                    val url = parsedUrl.getOrNull()!!
+                    when (val result = pageManager.register(url)) {
+                        is PageManager.RegisterResult.Unsupported ->
+                            call.respond(HttpStatusCode.UnprocessableEntity,
+                                    "can't process page at $urlString: ${result.cause}")
+                        is PageManager.RegisterResult.FetchError ->
+                            call.respond(HttpStatusCode.UnprocessableEntity,
+                                    "can't fetch page at $urlString: ${result.cause}")
+                        is PageManager.RegisterResult.Success -> call.respond(result.entry)
                     }
                 }
-                if (parsedUrl.isFailure)
-                    return@post call.respond(HttpStatusCode.BadRequest, "invalid url: $urlString")
-                val url = parsedUrl.getOrNull()!!
-                when (val result = pageManager.register(url)) {
-                    is PageManager.RegisterResult.Unsupported ->
-                        call.respond(HttpStatusCode.UnprocessableEntity,
-                                "can't process page at $urlString: ${result.cause}")
-                    is PageManager.RegisterResult.FetchError ->
-                        call.respond(HttpStatusCode.UnprocessableEntity,
-                                "can't fetch page at $urlString: ${result.cause}")
-                    is PageManager.RegisterResult.Success -> call.respond(result.entry)
-                }
-            }
-            authenticate {
                 get("/testAuth") {
-                    call.respond("all good!")
+                    if (call.authentication.principal == null) {
+                        call.respond(HttpStatusCode.Forbidden, "authentication failed.")
+                    } else {
+                        call.respond("all good!")
+                    }
                 }
             }
         }

@@ -8,6 +8,7 @@ import io.ktor.auth.Principal
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.response.respond
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 class MiltonAuthenticationProvider internal constructor(config: Configuration) : AuthenticationProvider(config) {
@@ -31,11 +32,8 @@ fun Authentication.Configuration.miltonAuthentication(
     val provider = MiltonAuthenticationProvider(MiltonAuthenticationProvider.Configuration(name).apply(configure))
     provider.pipeline.intercept(AuthenticationPipeline.RequestAuthentication) { context ->
         val authenticationString = call.request.headers[HttpHeaders.Authorization]
-        if (authenticationString == null) {
-            return@intercept call.respond(HttpStatusCode.Forbidden, "no auth header")
-        }
+                ?: return@intercept
 
-        logger.info("Auth header: $authenticationString")
         val (mode, token) = authenticationString.split(Regex("\\s+"), limit = 2)
         if (mode.toLowerCase() != "bearer") {
             return@intercept call.respond(HttpStatusCode.Forbidden, "invalid auth mode")
@@ -65,7 +63,7 @@ fun Authentication.Configuration.miltonAuthentication(
     register(provider)
 }
 
-val logger = LoggerFactory.getLogger(MiltonAuthenticationProvider::class.java)
+val logger: Logger = LoggerFactory.getLogger(MiltonAuthenticationProvider::class.java)
 
 sealed class MiltonPrincipal : Principal
 

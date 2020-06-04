@@ -2,5 +2,4 @@ build/
 .gradle/
 .idea/
 src/main/resources/secrets.conf
-src/main/resources/users.txt
 src/main/webapp/ui/
