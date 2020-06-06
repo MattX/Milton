@@ -60,25 +60,25 @@ class PageManager @Inject constructor(
 
         val insertedDate = Instant.now().truncatedTo(ChronoUnit.SECONDS)
 
-        logger.info("requesting $entry")
+        logger.info("requesting $url")
         val response = httpClient.get<HttpResponse>(url)
         if (response.status != HttpStatusCode.OK) {
-            logger.warn("got status ${response.status} for $entry.")
+            logger.warn("got status ${response.status} for $url.")
             return RegisterResult.FetchError("HTTP error: ${response.status}")
         }
         else if (response.contentType()?.withoutParameters() !in arrayOf(ContentType.Text.Plain, ContentType.Text.Html)) {
-            logger.warn("unsupported content-type: ${response.contentType()} for $entry")
+            logger.warn("unsupported content-type: ${response.contentType()} for $url")
             return RegisterResult.Unsupported("unsupported content-type: ${response.contentType()}")
         }
-        logger.info("sending $entry to the processor")
+        logger.info("sending $url to the processor")
         val processedPage = processorClient.process(response.readText(Charsets.UTF_8))
 
-        logger.info("saving page data for $entry")
+        logger.info("saving page data for $url")
         val storageId = UUID.randomUUID().toString()
         val storageKey = "$BUCKET_PREFIX/$storageId"
         bucket.create(storageKey, processedPage.content.toByteArray(Charsets.UTF_8))
 
-        logger.info("saving $entry to Algolia")
+        logger.info("saving $url to Algolia")
         val chunkCount = algoliaClient.indexPage(
                 url.toString(),
                 processedPage.title,

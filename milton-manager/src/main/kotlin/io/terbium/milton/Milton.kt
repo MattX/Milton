@@ -24,14 +24,9 @@ import io.ktor.application.log
 import io.ktor.auth.Authentication
 import io.ktor.auth.authenticate
 import io.ktor.auth.authentication
-import io.ktor.features.CORS
-import io.ktor.features.CallLogging
-import io.ktor.features.ContentNegotiation
-import io.ktor.features.DefaultHeaders
+import io.ktor.features.*
 import io.ktor.gson.gson
 import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.response.respond
@@ -70,9 +65,11 @@ class Milton @Inject constructor(
                 serializeNulls()
             }
         }
-        install(CORS) {
-            anyHost()
-            header(HttpHeaders.Authorization)
+        install(StatusPages) {
+            exception<Throwable> { cause ->
+                log.error("unhandled exception", cause)
+                call.respond(HttpStatusCode.InternalServerError, "Internal Server Error")
+            }
         }
 
         routing {
