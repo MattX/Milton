@@ -83,6 +83,21 @@ class AlgoliaClient @Inject constructor(
         return outputList
     }
 
+    suspend fun deletePage(url: String) {
+        val browseResults = index.browseObjects(Query(
+                query = url,
+                restrictSearchableAttributes = listOf(Attribute("url")),
+                attributesToRetrieve = listOf(
+                        Attribute("url"),
+                        Attribute("objectID")
+                )
+        ))
+        val objectIds = browseResults.flatMap { it.hits }
+                .filter { it["url"]!!.primitive.content == url }
+                .map { ObjectID(it["objectID"]!!.primitive.content) }
+        index.deleteObjects(objectIds)
+    }
+
     private val shaDigest = MessageDigest.getInstance("SHA-256")
     private val b64enc = Base64.getEncoder()
 

@@ -96,17 +96,9 @@ class Milton @Inject constructor(
                         log.warn("unauthenticated save request!")
                     }
                     val urlString = call.request.queryParameters["url"]
-                            ?: return@post call.response.status(HttpStatusCode.BadRequest)
-                    val parsedUrl = withContext(Dispatchers.IO) {
-                        try {
-                            success(URL(urlString))
-                        } catch (e: MalformedURLException) {
-                            failure<URL>(e)
-                        }
-                    }
-                    if (parsedUrl.isFailure)
-                        return@post call.respond(HttpStatusCode.BadRequest, "invalid url: $urlString")
-                    val url = parsedUrl.getOrNull()!!
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, "missing parameter url")
+                    val url = getUrl(urlString)
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, "invalid url: $urlString")
                     when (val result = pageManager.register(url)) {
                         is PageManager.RegisterResult.Unsupported ->
                             call.respond(HttpStatusCode.UnprocessableEntity,
@@ -115,6 +107,20 @@ class Milton @Inject constructor(
                             call.respond(HttpStatusCode.UnprocessableEntity,
                                     "can't fetch page at $urlString: ${result.cause}")
                         is PageManager.RegisterResult.Success -> call.respond(result.entry)
+                    }
+                }
+                post("/delete") {
+                    if (call.authentication.principal == null) {
+                        return@post call.respond(HttpStatusCode.Forbidden, "authentication required")
+                    }
+                    val urlString = call.request.queryParameters["url"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, "missing parameter url")
+                    val url = getUrl(urlString)
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, "invalid url: $urlString")
+                    if (pageManager.delete(url)) {
+                        call.response.status(HttpStatusCode.OK)
+                    } else {
+                        call.response.status(HttpStatusCode.NotFound)
                     }
                 }
                 get("/testAuth") {
@@ -134,6 +140,17 @@ fun Application.miltonManager() {
     with (milton) {
         setup()
     }
+}
+
+private suspend fun getUrl(urlString: String): URL? {
+    val parsedUrl = withContext(Dispatchers.IO) {
+        try {
+            success(URL(urlString))
+        } catch (e: MalformedURLException) {
+            failure<URL>(e)
+        }
+    }
+    return parsedUrl.getOrNull()
 }
 
 fun main() {
