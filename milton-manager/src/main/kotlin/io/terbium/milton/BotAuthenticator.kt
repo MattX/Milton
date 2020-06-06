@@ -16,9 +16,10 @@
 
 package io.terbium.milton
 
-data class AlgoliaRecord(
-        val title: String,
-        val siteName: String?,
-        val url: String,
-        val storageId: String
-)
+import javax.inject.Inject
+
+open class BotAuthenticator @Inject constructor(@BotSecrets private val botSecrets: Map<String, String>) {
+    fun authenticate(botName: String, botSecret: String): Boolean {
+        return botSecrets[botName] == botSecret
+    }
+}
