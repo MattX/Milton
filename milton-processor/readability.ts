@@ -15,9 +15,14 @@ export interface ParsedOutput {
 }
 
 export function parse(htmlString: string): ParsedOutput {
+  console.log(`Starting parse at ${Date.now()}`);
   const dom = new JSDOM(htmlString).window
-  domPurify(dom).sanitize(htmlString, {WHOLE_DOCUMENT: true, IN_PLACE: true});
-  return new Readability(dom.document).parse();
+  console.log(`created dom ${Date.now()}`);
+  domPurify(dom).sanitize(dom.document, {WHOLE_DOCUMENT: true, IN_PLACE: true});
+  console.log(`sanitized ${Date.now()}`);
+  const result = new Readability(dom.document).parse();
+  console.log(`readabilized ${Date.now()}`);
+  return result;
 }
 
 export function fetchArticle(url: string, callback: (content: string, err: Error) => void) {
