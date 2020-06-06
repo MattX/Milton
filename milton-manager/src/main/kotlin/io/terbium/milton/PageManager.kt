@@ -87,7 +87,7 @@ class PageManager @Inject constructor(
                 processedPage.textContent
         )
 
-        logger.info("saving $entry to Firebase")
+        logger.info("saving $url to Firebase")
         val key = firebase.newKeyFactory().setKind(PAGE_KIND).newKey()
         val pageEntity = Entity.newBuilder(key)
                 .set("url", url.toString())
@@ -103,9 +103,9 @@ class PageManager @Inject constructor(
         return RegisterResult.Success(registeredEntry)
     }
 
-    fun getContent(storageId: String): String {
+    fun getContent(storageId: String): String? {
         val storageKey = "$BUCKET_PREFIX/$storageId"
-        return bucket.get(storageKey).getContent().toString(Charsets.UTF_8)
+        return bucket.get(storageKey)?.getContent()?.toString(Charsets.UTF_8)
     }
 
     fun list(): List<RegisteredEntry> {

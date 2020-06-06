@@ -82,7 +82,12 @@ class Milton @Inject constructor(
             get("/content") {
                 val storageId = call.request.queryParameters["id"]
                         ?: return@get call.response.status(HttpStatusCode.BadRequest)
-                call.respond(TextContent(pageManager.getContent(storageId), ContentType.Text.Html))
+                val content = pageManager.getContent(storageId)
+                if (content == null) {
+                    call.response.status(HttpStatusCode.NotFound)
+                } else {
+                    call.respond(TextContent(content, ContentType.Text.Html))
+                }
             }
             get("/search") {
                 val searchQuery = call.request.queryParameters["q"]
