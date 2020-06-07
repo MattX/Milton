@@ -17,6 +17,15 @@ app.post("/extract", (req, res) => {
   res.send(readability.parse(req.body.page));
 });
 
+app.get("/cached", async (req, res) => {
+  res.set('Access-Control-Allow-Origin', CONFIG.cors_client);
+
+  const url = req.query.url.toString();
+  const articleCached = await cache.isCached(url);
+
+  res.status(200).send(articleCached);
+});
+
 app.options("/simplify", (req, res) => {
   // Allow CORS requests from CDN
   res.set('Access-Control-Allow-Origin', CONFIG.cors_client);
@@ -24,7 +33,7 @@ app.options("/simplify", (req, res) => {
   res.set('Access-Control-Allow-Headers', 'Content-Type');
   res.set('Access-Control-Max-Age', '3600');
   res.status(204).send('');
-})
+});
 
 app.post("/simplify", async (req, res) => {
   const url = req.body.page;
@@ -37,7 +46,7 @@ app.post("/simplify", async (req, res) => {
   if (articleCached) {
     console.log(`Found cached version of ${url}`);
     manuscript = await cache.fetch(url);
-    res.send(manuscript);
+    res.send(manuscript.data);
   } else {
     readability.fetchArticle(url, (content, err) => {
       console.log(`Fetching contents of ${url}`);
@@ -48,7 +57,7 @@ app.post("/simplify", async (req, res) => {
         console.log(`Saving contents of ${url}`);
         const po: readability.ParsedOutput = readability.parse(content);
         manuscript = new cache.Manuscript({
-          url: url,
+          url,
           title: po.title,
           siteName: po.siteName,
           byline: po.byline,
@@ -60,7 +69,7 @@ app.post("/simplify", async (req, res) => {
           tags: [],
         });
         cache.save(url, manuscript);
-        res.send(manuscript);
+        res.send(manuscript.data);
       }
     });
   }

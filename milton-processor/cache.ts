@@ -76,6 +76,7 @@ function urlToFile(url: string): gcs.File {
   const storage = createStorageClient();
   const bucket = storage.bucket('scribe-storage');
   const key = urlToKey(url);
+  console.debug(`URL ${url} located at: ${key}`);
   return bucket.file(key);
 }
 
