@@ -95,28 +95,30 @@ class App extends React.Component<{}, AppState> {
         });
     }
 
-    removeWrapper(url: string) {
+    deleteWrapper(url: string) {
         if (!window.confirm("Really delete this post?")) {
             return;
         }
-        this.client.remove(url).then((m: string | null) => {
+        const deletedPost = this.state.selectedPost;
+        this.client.delete(url).then((m: string | null) => {
             if (m !== null) {
                 this.alertMessageManager.addMessage(m, 10_000);
+            } else {
+                this.setState({posts: this.state.posts?.filter((post: Post) => post !== deletedPost)});
             }
         })
-        const deletedPost = this.state.selectedPost;
+
         this.setState({
             readerState: ReaderState.NONE,
             selectedPost: undefined,
             selectedPostText: undefined,
-            posts: this.state.posts?.filter((post: Post) => post !== deletedPost),
-        })
+        });
     }
 
     render() {
         const clearSearch = this.state.viewingSearch ? this.clearSearch.bind(this) : undefined;
         const remove = this.state.loggedIn && this.state.selectedPost ?
-            (() => this.removeWrapper(this.state.selectedPost!!.url)) : undefined;
+            (() => this.deleteWrapper(this.state.selectedPost!!.url)) : undefined;
         return (
             <div className="App">
                 <AlertMessages messages={this.state.messages} />

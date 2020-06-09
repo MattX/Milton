@@ -46,7 +46,7 @@ export class MiltonClient {
             ));
     }
 
-    remove(url: string): Promise<string | null> {
+    delete(url: string): Promise<string | null> {
         if (this.credentials === null) {
             return Promise.resolve("not authenticated");
         }
