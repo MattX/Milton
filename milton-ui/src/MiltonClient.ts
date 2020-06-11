@@ -46,6 +46,17 @@ export class MiltonClient {
             ));
     }
 
+    delete(url: string): Promise<string | null> {
+        if (this.credentials === null) {
+            return Promise.resolve("not authenticated");
+        }
+        return axios.post(`${MILTON_MANAGER_HOST}/delete?url=${url}`, {}, {
+            headers: {
+                'Authorization': `Bearer google;${this.credentials}`
+            }
+        }).then(() => null).catch((e: AxiosError) => e.message);
+    }
+
     testAuthenticate(): Promise<boolean> {
         if (this.credentials === null) {
             return Promise.resolve(false);
@@ -54,7 +65,7 @@ export class MiltonClient {
             headers: {
                 'Authorization': `Bearer google;${this.credentials}`
             }
-        }).then(() => true).catch((e: AxiosError) => {console.log(e); return false;})
+        }).then(() => true).catch((e: AxiosError) => {console.log(e); return false;});
     }
 
     setCredentials(credentials: String | null) {

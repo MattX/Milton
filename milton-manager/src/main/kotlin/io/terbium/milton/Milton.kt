@@ -17,10 +17,7 @@
 package io.terbium.milton
 
 import com.google.inject.Guice
-import io.ktor.application.Application
-import io.ktor.application.call
-import io.ktor.application.install
-import io.ktor.application.log
+import io.ktor.application.*
 import io.ktor.auth.Authentication
 import io.ktor.auth.authenticate
 import io.ktor.auth.authentication
@@ -82,7 +79,12 @@ class Milton @Inject constructor(
             get("/content") {
                 val storageId = call.request.queryParameters["id"]
                         ?: return@get call.response.status(HttpStatusCode.BadRequest)
-                call.respond(TextContent(pageManager.getContent(storageId), ContentType.Text.Html))
+                val content = pageManager.getContent(storageId)
+                if (content == null) {
+                    call.response.status(HttpStatusCode.NotFound)
+                } else {
+                    call.respond(TextContent(content, ContentType.Text.Html))
+                }
             }
             get("/search") {
                 val searchQuery = call.request.queryParameters["q"]
@@ -92,29 +94,24 @@ class Milton @Inject constructor(
 
             authenticate {
                 post("/save") {
-                    if (call.authentication.principal == null) {
-                        log.warn("unauthenticated save request!")
-                    }
-                    val urlString = call.request.queryParameters["url"]
-                            ?: return@post call.response.status(HttpStatusCode.BadRequest)
-                    val parsedUrl = withContext(Dispatchers.IO) {
-                        try {
-                            success(URL(urlString))
-                        } catch (e: MalformedURLException) {
-                            failure<URL>(e)
-                        }
-                    }
-                    if (parsedUrl.isFailure)
-                        return@post call.respond(HttpStatusCode.BadRequest, "invalid url: $urlString")
-                    val url = parsedUrl.getOrNull()!!
+                    val url = getUrlFromParameters(call) ?: return@post
                     when (val result = pageManager.register(url)) {
                         is PageManager.RegisterResult.Unsupported ->
                             call.respond(HttpStatusCode.UnprocessableEntity,
-                                    "can't process page at $urlString: ${result.cause}")
+                                    "can't process page at $url: ${result.cause}")
                         is PageManager.RegisterResult.FetchError ->
                             call.respond(HttpStatusCode.UnprocessableEntity,
-                                    "can't fetch page at $urlString: ${result.cause}")
+                                    "can't fetch page at $url: ${result.cause}")
                         is PageManager.RegisterResult.Success -> call.respond(result.entry)
+                    }
+                }
+                post("/delete") {
+                    val url = getUrlFromParameters(call) ?: return@post
+                    log.info("delete request for $url")
+                    if (pageManager.delete(url)) {
+                        call.response.status(HttpStatusCode.OK)
+                    } else {
+                        call.response.status(HttpStatusCode.NotFound)
                     }
                 }
                 get("/testAuth") {
@@ -127,6 +124,31 @@ class Milton @Inject constructor(
             }
         }
     }
+}
+
+private suspend fun getUrlFromParameters(call: ApplicationCall): URL? {
+    val urlString = call.request.queryParameters["url"]
+    if (urlString == null) {
+        call.respond(HttpStatusCode.BadRequest, "missing parameter url")
+        return null
+    }
+    val url = getUrl(urlString)
+    if (url == null) {
+        call.respond(HttpStatusCode.BadRequest, "invalid url: $urlString")
+        return null
+    }
+    return url;
+}
+
+private suspend fun getUrl(urlString: String): URL? {
+    val parsedUrl = withContext(Dispatchers.IO) {
+        try {
+            success(URL(urlString))
+        } catch (e: MalformedURLException) {
+            failure<URL>(e)
+        }
+    }
+    return parsedUrl.getOrNull()
 }
 
 fun Application.miltonManager() {

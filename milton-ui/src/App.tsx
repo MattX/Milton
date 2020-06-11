@@ -1,7 +1,7 @@
 import React from 'react';
 import './App.css';
 import {PostList} from "./PostList";
-import {Post, MiltonClient} from "./MiltonClient";
+import {MiltonClient, Post} from "./MiltonClient";
 import {Reader, ReaderState} from "./Reader";
 import {IdentityButton} from "./IdentityButton";
 import {GoogleLoginResponse, GoogleLoginResponseOffline} from "react-google-login";
@@ -75,7 +75,8 @@ class App extends React.Component<{}, AppState> {
     }
 
     loginFailure(error: any) {
-        this.alertMessageManager.addMessage(`Login error: ${error}`);
+        console.log(error);
+        this.alertMessageManager.addMessage(`Login error: ${error.toJSON()}`);
     }
 
     logOut() {
@@ -94,8 +95,30 @@ class App extends React.Component<{}, AppState> {
         });
     }
 
+    deleteWrapper(url: string) {
+        if (!window.confirm("Really delete this post?")) {
+            return;
+        }
+        const deletedPost = this.state.selectedPost;
+        this.client.delete(url).then((m: string | null) => {
+            if (m !== null) {
+                this.alertMessageManager.addMessage(m, 10_000);
+            } else {
+                this.setState({posts: this.state.posts?.filter((post: Post) => post !== deletedPost)});
+            }
+        })
+
+        this.setState({
+            readerState: ReaderState.NONE,
+            selectedPost: undefined,
+            selectedPostText: undefined,
+        });
+    }
+
     render() {
         const clearSearch = this.state.viewingSearch ? this.clearSearch.bind(this) : undefined;
+        const remove = this.state.loggedIn && this.state.selectedPost ?
+            (() => this.deleteWrapper(this.state.selectedPost!!.url)) : undefined;
         return (
             <div className="App">
                 <AlertMessages messages={this.state.messages} />
@@ -104,24 +127,25 @@ class App extends React.Component<{}, AppState> {
                     <h3 className="headerName">The Milton Library Assistant</h3>
                 </header>
                 <div className="mainContent">
-                <div className={"postListContainer" + (this.state.showingPostList ? " inScope" : "")}>
-                    <IdentityButton loggedIn={this.state.loggedIn}
-                                    onLoginSuccess={this.logIn.bind(this)}
-                                    onLoginFailure={this.loginFailure.bind(this)}
-                                    onLogout={this.logOut.bind(this)}
-                                    testAuthenticate={null} />
-                    <PostList posts={this.state.posts}
-                              selectedUrl={this.state.selectedPost?.url}
-                              selectPost={this.selectPost.bind(this)}
-                              search={this.search.bind(this)}
-                              clearSearch={clearSearch}/>
-                </div>
-                <div className="readerContainer">
-                    <Reader articleHtml={this.state.selectedPostText}
-                            readerState={this.state.readerState}
-                            articleUrl={this.state.selectedPost?.url}
-                            articleTitle={this.state.selectedPost?.title}/>
-                </div>
+                    <div className={"postListContainer" + (this.state.showingPostList ? " inScope" : "")}>
+                        <IdentityButton loggedIn={this.state.loggedIn}
+                                        onLoginSuccess={this.logIn.bind(this)}
+                                        onLoginFailure={this.loginFailure.bind(this)}
+                                        onLogout={this.logOut.bind(this)}
+                                        testAuthenticate={null} />
+                        <PostList posts={this.state.posts}
+                                  selectedUrl={this.state.selectedPost?.url}
+                                  selectPost={this.selectPost.bind(this)}
+                                  search={this.search.bind(this)}
+                                  clearSearch={clearSearch}/>
+                    </div>
+                    <div className="readerContainer">
+                        <Reader articleHtml={this.state.selectedPostText}
+                                readerState={this.state.readerState}
+                                articleUrl={this.state.selectedPost?.url}
+                                articleTitle={this.state.selectedPost?.title}
+                                removeArticle={remove} />
+                    </div>
                 </div>
             </div>
         );

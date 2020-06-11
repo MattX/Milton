@@ -46,6 +46,12 @@ class MiltonManagerModule : AbstractModule() {
         bind(object : TypeLiteral<Map<String, @JvmSuppressWildcards String>>() {})
                 .annotatedWith(BotSecrets::class.java)
                 .toInstance(botSecrets)
+        val authorizedUsers = secretConf.getList("authorizedUsers")
+                .map { (it.unwrapped()) as String }
+                .toSet()
+        bind (object : TypeLiteral<Set<@JvmSuppressWildcards String>>() {})
+                .annotatedWith(AuthorizedUsers::class.java)
+                .toInstance(authorizedUsers)
     }
 }
 
@@ -78,3 +84,8 @@ annotation class ProjectName
 @Target(AnnotationTarget.FIELD, AnnotationTarget.VALUE_PARAMETER, AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.RUNTIME)
 annotation class BotSecrets
+
+@Qualifier
+@Target(AnnotationTarget.FIELD, AnnotationTarget.VALUE_PARAMETER, AnnotationTarget.CLASS)
+@Retention(AnnotationRetention.RUNTIME)
+annotation class AuthorizedUsers

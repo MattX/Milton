@@ -75,6 +75,7 @@ fun Authentication.Configuration.miltonAuthentication(
                 }
             }
         }
+        logger.info("authenticated as {}", context.principal)
     }
     register(provider)
 }

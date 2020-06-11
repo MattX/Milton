@@ -16,13 +16,15 @@
 
 package io.terbium.milton
 
-import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import javax.inject.Inject
 
-class GoogleAuthenticator @Inject constructor(@GoogleAuthClientId private val clientId: String) {
+class GoogleAuthenticator @Inject constructor(
+        @GoogleAuthClientId private val clientId: String,
+        @AuthorizedUsers private val authorizedUsers: Set<String>
+) {
     private val transport = GoogleNetHttpTransport.newTrustedTransport()
     private val jsonFactory = GsonFactory.getDefaultInstance()
 
@@ -31,7 +33,9 @@ class GoogleAuthenticator @Inject constructor(@GoogleAuthClientId private val cl
                 .setAudience(listOf(clientId))
                 .build()
 
-        val idToken: GoogleIdToken? = verifier.verify(idTokenString)
-        return idToken != null
+        return when (val email = verifier.verify(idTokenString)?.payload?.email) {
+            in authorizedUsers -> true
+            else -> false
+        }
     }
 }

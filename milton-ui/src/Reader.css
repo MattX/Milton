@@ -16,3 +16,7 @@
     max-width: 100%;
     height: auto;
 }
+
+.btn-spaced {
+    margin: auto 0.5em;
+}

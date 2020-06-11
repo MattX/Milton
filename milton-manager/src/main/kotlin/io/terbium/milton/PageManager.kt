@@ -52,7 +52,7 @@ class PageManager @Inject constructor(
     private val bucket = storage.get(BUCKET_NAME)
 
     suspend fun register(url: URL): RegisterResult {
-        val entry = get(url.toString())
+        val entry = get(url.toString())?.first
         if (entry != null) {
             logger.info("not indexing $entry as it is already in the database.")
             return RegisterResult.Success(entry)
@@ -87,7 +87,7 @@ class PageManager @Inject constructor(
                 processedPage.textContent
         )
 
-        logger.info("saving $entry to Firebase")
+        logger.info("saving $url to Firebase")
         val key = firebase.newKeyFactory().setKind(PAGE_KIND).newKey()
         val pageEntity = Entity.newBuilder(key)
                 .set("url", url.toString())
@@ -103,9 +103,9 @@ class PageManager @Inject constructor(
         return RegisterResult.Success(registeredEntry)
     }
 
-    fun getContent(storageId: String): String {
+    fun getContent(storageId: String): String? {
         val storageKey = "$BUCKET_PREFIX/$storageId"
-        return bucket.get(storageKey).getContent().toString(Charsets.UTF_8)
+        return bucket.get(storageKey)?.getContent()?.toString(Charsets.UTF_8)
     }
 
     fun list(): List<RegisteredEntry> {
@@ -116,12 +116,26 @@ class PageManager @Inject constructor(
         return firebase.run(query).iterator().asSequence().map { it.toRegisteredEntry() }.toList()
     }
 
-    private fun get(url: String): RegisteredEntry? {
+    private fun get(url: String): Pair<RegisteredEntry, Key>? {
         val query = Query.newEntityQueryBuilder()
                 .setKind(PAGE_KIND)
                 .setFilter(StructuredQuery.PropertyFilter.eq("url", url))
                 .build()
-        return firebase.run(query).asSequence().firstOrNull()?.toRegisteredEntry()
+        val result = firebase.run(query).asSequence().firstOrNull() ?: return null
+        return Pair(result.toRegisteredEntry(), result.key)
+    }
+
+    suspend fun delete(url: URL): Boolean {
+        val url = url.toString()
+        val (entry, key) = get(url) ?: return false
+        logger.info("deleting $url from search index")
+        algoliaClient.deletePage(url)
+        logger.info("deleting $url from bucket")
+        val storageKey = "$BUCKET_PREFIX/${entry.storageId}"
+        bucket.get(storageKey).delete()
+        logger.info("deleting $url from database")
+        firebase.delete(key)
+        return true
     }
 
     companion object {
