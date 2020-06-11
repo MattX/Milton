@@ -14,7 +14,6 @@ export interface ManuscriptData {
   content: string;
   cachedAt: number;
   updatedAt: number;
-  tags: string[];
 }
 
 export class Manuscript {
@@ -22,24 +21,6 @@ export class Manuscript {
 
   constructor(data: ManuscriptData) {
     this.data = data;
-  }
-
-  addTag(tag: string): boolean {
-    const isNew = !this.data.tags.includes(tag);
-    if (isNew) {
-      this.data.tags.push(tag);
-      this.updateUpdatedAt();
-    }
-    return isNew;
-  }
-
-  removeTag(tag: string): boolean {
-    const exists = this.data.tags.includes(tag);
-    if (exists) {
-      this.data.tags = this.data.tags.filter((t) => t !== tag);
-      this.updateUpdatedAt();
-    }
-    return exists;
   }
 
   updateUpdatedAt() {

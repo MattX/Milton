@@ -66,7 +66,6 @@ app.post("/simplify", async (req, res) => {
           content: po.content,
           cachedAt: Date.now(),
           updatedAt: Date.now(),
-          tags: [],
         });
         cache.save(url, manuscript);
         res.send(manuscript.data);
