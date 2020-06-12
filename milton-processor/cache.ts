@@ -4,14 +4,37 @@ import base64url = require('base64url');
 import { ENVIRONMENT, CONFIG } from './scribe';
 
 
-export interface Manuscript {
-  url: string,
+export interface ManuscriptData {
+  url: string;
   title: string;
   siteName: string;
   byline: string;
   excerpt: string;
   textContent: string;
   content: string;
+  cachedAt: number;
+  updatedAt: number;
+}
+
+export class Manuscript {
+  data: ManuscriptData;
+
+  constructor(data: ManuscriptData) {
+    this.data = data;
+  }
+
+  updateUpdatedAt() {
+    this.data.updatedAt = Date.now();
+  }
+
+  static fromJson(jsonData: string): Manuscript {
+    const data = JSON.parse(jsonData) as ManuscriptData;
+    return new Manuscript(data);
+  }
+
+  toJson(): string {
+    return JSON.stringify(this.data);
+  }
 }
 
 function createStorageClient() {
@@ -34,12 +57,13 @@ function urlToFile(url: string): gcs.File {
   const storage = createStorageClient();
   const bucket = storage.bucket('scribe-storage');
   const key = urlToKey(url);
+  console.debug(`URL ${url} located at: ${key}`);
   return bucket.file(key);
 }
 
 export function save(url: string, contents: Manuscript) {
   const file = urlToFile(url);
-  file.save(JSON.stringify(contents)).then(() => {
+  file.save(contents.toJson()).then(() => {
     file.setMetadata({contentType: 'application/json'});
     console.log(`Saved contents of URL (${url}) to cache`);
   }).catch((err) => {
@@ -51,7 +75,7 @@ export function fetch(url: string): Promise<Manuscript> {
   const file = urlToFile(url);
   const cachedManuscript = file.download().then((data) => {
     const fileContents = data[0].toString();
-    return JSON.parse(fileContents) as Manuscript;
+    return Manuscript.fromJson(fileContents);
   }).catch((err) => {
     console.warn(`Failed to fetch contents of URL (${url}) with error: ${err.message}`)
     throw err;
