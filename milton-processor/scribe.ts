@@ -55,7 +55,7 @@ app.post("/simplify", async (req, res) => {
         res.status(422).send(`Unable to fetch page: ${err.message}`);
       } else {
         console.log(`Saving contents of ${url}`);
-        const po: readability.ParsedOutput = readability.parse(content);
+        const po: readability.ParsedOutput = readability.parse(content, url);
         manuscript = new cache.Manuscript({
           url,
           title: po.title,
