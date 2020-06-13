@@ -14,7 +14,7 @@ app.get("/", (req, res) => {
 });
 
 app.post("/extract", (req, res) => {
-  res.send(readability.parse(req.body.page));
+  res.send(readability.parse(req.body.page, req.body.url));
 });
 
 app.get("/cached", async (req, res) => {
@@ -37,13 +37,14 @@ app.options("/simplify", (req, res) => {
 
 app.post("/simplify", async (req, res) => {
   const url = req.body.page;
+  const refreshCache = (req.body.refresh as boolean);
   console.log(`Simplifying URL: ${url}`);
   res.set('Access-Control-Allow-Origin', CONFIG.cors_client);
 
   let manuscript: cache.Manuscript;
   const articleCached = await cache.isCached(url);
 
-  if (articleCached) {
+  if (articleCached && !refreshCache) {
     console.log(`Found cached version of ${url}`);
     manuscript = await cache.fetch(url);
     res.send(manuscript.data);
