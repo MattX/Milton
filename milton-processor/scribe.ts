@@ -49,14 +49,10 @@ app.post("/simplify", async (req, res) => {
     manuscript = await cache.fetch(url);
     res.send(manuscript.data);
   } else {
-    readability.fetchArticle(url, (content, err) => {
-      console.log(`Fetching contents of ${url}`);
-      if (err) {
-        console.warn(`Failed to fetch ${url} with error: ${err.message}`);
-        res.status(422).send(`Unable to fetch page: ${err.message}`);
-      } else {
-        console.log(`Saving contents of ${url}`);
-        const po: readability.ParsedOutput = readability.parse(content, url);
+    console.log(`Fetching contents of ${url}`);
+    readability.fetchArticle(url).then((response) => {
+      console.log(`Saving contents of ${url}`);
+        const po: readability.ParsedOutput = readability.parse(response, url);
         manuscript = new cache.Manuscript({
           url,
           title: po.title,
@@ -70,7 +66,9 @@ app.post("/simplify", async (req, res) => {
         });
         cache.save(url, manuscript);
         res.send(manuscript.data);
-      }
+    }).catch((err) => {
+      console.warn(`Failed to fetch ${url} with error: ${err.message}`);
+      res.status(422).send(`Unable to fetch page: ${err.message}`);
     });
   }
 });
