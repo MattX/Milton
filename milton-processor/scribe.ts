@@ -1,6 +1,7 @@
 import express = require('express')
 import * as readability from "./readability";
 import * as cache from "./cache";
+import * as fetcher from "./fetcher";
 
 import configFile from './config.json';
 export const ENVIRONMENT = process.env.NODE_ENV || 'dev';
@@ -46,13 +47,18 @@ app.post("/simplify", async (req, res) => {
 
   if (articleCached && !refreshCache) {
     console.log(`Found cached version of ${url}`);
-    manuscript = await cache.fetch(url);
+    manuscript = await cache.fetchManuscript(url);
     res.send(manuscript.data);
   } else {
     console.log(`Fetching contents of ${url}`);
-    readability.fetchArticle(url).then((response) => {
+    fetcher.fetchArticle(url).then((response) => {
       console.log(`Saving contents of ${url}`);
-        const po: readability.ParsedOutput = readability.parse(response, url);
+
+      if (response.isTextual()) {
+        // save raw contents as text and perform readability parsing
+        cache.saveRawContents(url, response.body, response.contentType);
+
+        const po: readability.ParsedOutput = readability.parse(response.body, url);
         manuscript = new cache.Manuscript({
           url,
           title: po.title,
@@ -64,8 +70,27 @@ app.post("/simplify", async (req, res) => {
           cachedAt: Date.now(),
           updatedAt: Date.now(),
         });
-        cache.save(url, manuscript);
-        res.send(manuscript.data);
+        cache.saveManuscript(url, manuscript);
+      } else {
+        // this article is not textual, so save the raw data and don't try to parse it with readability
+        cache.saveRawContents(url, response.rawData, response.contentType);
+
+        // yes this is a sloppy hack...
+        manuscript = new cache.Manuscript({
+          url,
+          title: 'Manuscript unavailable',
+          siteName: 'Sitename unavailable',
+          byline: 'Byline unavailable',
+          excerpt: 'Excerpt unavailable',
+          textContent: 'Content unavailable',
+          content: 'Content unavailable',
+          cachedAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+        cache.saveManuscript(url, manuscript);
+      }
+
+      res.send(manuscript.data);
     }).catch((err) => {
       console.warn(`Failed to fetch ${url} with error: ${err.message}`);
       res.status(422).send(`Unable to fetch page: ${err.message}`);

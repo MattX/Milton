@@ -1,7 +1,7 @@
 import jsdomLib = require('jsdom');
 import domPurify = require('dompurify');
 import Readability = require('readability');
-import * as RestClient from 'typed-rest-client/HttpClient';
+
 
 const JSDOM = jsdomLib.JSDOM;
 
@@ -56,8 +56,3 @@ function toAbsoluteUrl(baseUrl: string, url: string): string {
   }
   return url;
 }
-
-export function fetchArticle(url: string): Promise<string> {
-  const httpClient = new RestClient.HttpClient('Scribe/1.0');
-  return httpClient.get(url).then((res) => res.readBody());
-};
