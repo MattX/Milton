@@ -18,7 +18,7 @@ export class FetcherResponse {
   }
 
   isTextual(): boolean {
-    return this.contentType.startsWith('text/');
+    return this.contentType.startsWith('text/html');
   }
 
   addBody(body: string) {

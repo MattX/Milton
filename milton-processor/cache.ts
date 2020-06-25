@@ -79,13 +79,12 @@ export function saveRawContents(url: string, rawContents: any, contentType?: str
 
 export function fetchRawContents(url: string): Promise<string> {
   const file = urlToFile(url, RAW_CONTENTS_PATH);
-  const cachedContents = file.download().then((data) => {
-    const fileContents = data[0].toString();
-    return fileContents;
-  }).catch((err) => {
-    console.warn(`Failed to fetch raw content of URL (${url}) with error: ${err.message}`)
-    throw err;
-  });
+  const cachedContents = file.download()
+    .then(data => data[0].toString())
+    .catch(err => {
+      console.warn(`Failed to fetch raw content of URL (${url}) with error: ${err.message}`)
+      throw err;
+    });
   return cachedContents;
 }
 
