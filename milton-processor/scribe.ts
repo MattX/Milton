@@ -27,6 +27,15 @@ app.get("/cached", async (req, res) => {
   res.status(200).send(articleCached);
 });
 
+app.get("/fetch", async (req, res) => {
+  res.set('Access-Control-Allow-Origin', CONFIG.cors_client);
+
+  const url = req.query.url.toString();
+  console.log(`Fetching cached raw contents of ${url}`);
+  const cachedRawContents = await cache.fetchRawContents(url);
+  res.status(200).end(cachedRawContents, 'binary');
+});
+
 app.options("/simplify", (req, res) => {
   // Allow CORS requests from CDN
   res.set('Access-Control-Allow-Origin', CONFIG.cors_client);

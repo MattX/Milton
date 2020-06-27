@@ -77,10 +77,10 @@ export function saveRawContents(url: string, rawContents: any, contentType?: str
   });
 }
 
-export function fetchRawContents(url: string): Promise<string> {
+export function fetchRawContents(url: string): Promise<Buffer> {
   const file = urlToFile(url, RAW_CONTENTS_PATH);
   const cachedContents = file.download()
-    .then(data => data[0].toString())
+    .then(data => data[0])
     .catch(err => {
       console.warn(`Failed to fetch raw content of URL (${url}) with error: ${err.message}`)
       throw err;
