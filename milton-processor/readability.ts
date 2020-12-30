@@ -1,6 +1,6 @@
 import jsdomLib = require('jsdom');
 import domPurify = require('dompurify');
-import Readability = require('readability');
+import readability = require('@mozilla/readability');
 
 
 const JSDOM = jsdomLib.JSDOM;
@@ -27,7 +27,7 @@ export function parse(htmlString: string, baseUrl?: string): ParsedOutput {
   window.sanitize(dom.document, {WHOLE_DOCUMENT: true, IN_PLACE: true});
   console.debug(`Sanitized: ${Date.now()}`);
 
-  const result = new Readability(dom.document).parse();
+  const result = new readability.Readability(dom.document).parse();
   console.debug(`Readabilized: ${Date.now()}`);
 
   return result;
