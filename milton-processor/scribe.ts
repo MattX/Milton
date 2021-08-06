@@ -40,7 +40,7 @@ app.options("/simplify", (req, res) => {
   // Allow CORS requests from CDN
   res.set('Access-Control-Allow-Origin', CONFIG.cors_client);
   res.set('Access-Control-Allow-Methods', 'POST');
-  res.set('Access-Control-Allow-Headers', 'Content-Type');
+  res.set('Access-Control-Allow-Headers', ['Content-Type', 'token']);
   res.set('Access-Control-Max-Age', '3600');
   res.status(204).send('');
 });
@@ -48,6 +48,7 @@ app.options("/simplify", (req, res) => {
 app.post("/simplify", async (req, res) => {
   const url = req.body.page;
   const refreshCache = (req.body.refresh as boolean);
+  const token = req.header('token');
   console.log(`Simplifying URL: ${url}`);
   res.set('Access-Control-Allow-Origin', CONFIG.cors_client);
 
@@ -59,6 +60,11 @@ app.post("/simplify", async (req, res) => {
     manuscript = await cache.fetchManuscript(url);
     res.send(manuscript.data);
   } else {
+    if (token !== process.env.SCRIBE_AUTH_TOKEN) {
+      console.warn(`Unauthenticated fetch for URL: ${url} with token: ${token}`);
+      res.status(401).send(`Unauthenticated fetch request`);
+      return;
+    }
     console.log(`Fetching contents of ${url}`);
     fetcher.fetchArticle(url).then((response) => {
       console.log(`Saving contents of ${url}`);
