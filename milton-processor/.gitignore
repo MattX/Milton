@@ -4,6 +4,6 @@
 # Exclude dependencies
 node_modules/
 
-secret
 .idea/
 key.json
+env.yaml

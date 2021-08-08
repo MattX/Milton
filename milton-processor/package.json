@@ -15,7 +15,7 @@
     "start": "node ./index.js",
     "gcp-build": "tsc -p .",
     "deploy-appengine": "gcloud app deploy",
-    "deploy-function": "gcloud functions deploy scribe --runtime nodejs10 --allow-unauthenticated --trigger-http --memory 512MB --service-account scribe@dsouza-proving-ground.iam.gserviceaccount.com --set-env-vars NODE_ENV=prod"
+    "deploy-function": "gcloud functions deploy scribe --runtime nodejs10 --allow-unauthenticated --trigger-http --memory 512MB --service-account scribe@dsouza-proving-ground.iam.gserviceaccount.com --env-vars-file env.yaml"
   },
   "dependencies": {
     "@google-cloud/storage": "^5.7.0",
