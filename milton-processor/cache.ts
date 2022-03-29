@@ -73,7 +73,7 @@ export function saveRawContents(url: string, path: string, rawContents: any, con
     if (contentType) {
       file.setMetadata({contentType});
     }
-    console.log(`Saved raw contents of URL (${url}) to cache`);
+    console.log(`Saved raw contents of URL (${url}) to cache with content-type (${contentType})`);
   }).catch((err) => {
     console.error(`Failed to save raw contents of URL (${url}) with error: ${err.message}`);
   });

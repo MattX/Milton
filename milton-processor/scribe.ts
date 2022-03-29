@@ -72,7 +72,7 @@ app.post("/simplify", async (req, res) => {
 
       if (response.isTextual()) {
         // save raw contents as text and perform readability parsing
-        cache.saveRawContents(url, response.body, response.contentType);
+        cache.saveRawContents(url, cache.RAW_CONTENTS_PATH, response.body, response.contentType);
 
         const po: readability.ParsedOutput = readability.parse(response.body, url);
         manuscript = new cache.Manuscript({
@@ -89,7 +89,7 @@ app.post("/simplify", async (req, res) => {
         cache.saveManuscript(url, manuscript);
 
         // try saving a PDF
-        console.log(`Caching PDF version of ${url}`);
+        console.log(`Caching snapshot version of ${url}`);
         // const pdfData = await snapshot.fetchPDF(url);
         // cache.saveRawContents(url, cache.PDF_PATH, pdfData, 'application/pdf');
         const screenshotData = await snapshot.fetchScreenshot(url);
