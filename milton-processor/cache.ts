@@ -4,8 +4,10 @@ import base64url = require('base64url');
 import { ENVIRONMENT, CONFIG } from './scribe';
 
 
-const MANUSCRIPT_PATH = 'manuscript.json';
-const RAW_CONTENTS_PATH = 'raw_content';
+export const MANUSCRIPT_PATH = 'manuscript.json';
+export const RAW_CONTENTS_PATH = 'raw_content';
+export const PDF_PATH = 'snapshot.pdf'
+export const SCREENSHOT_PATH = 'screenshot.png'
 
 export interface ManuscriptData {
   url: string;
@@ -65,8 +67,8 @@ function urlToFile(url: string, filename: string): gcs.File {
   return bucket.file(key);
 }
 
-export function saveRawContents(url: string, rawContents: any, contentType?: string) {
-  const file = urlToFile(url, RAW_CONTENTS_PATH);
+export function saveRawContents(url: string, path: string, rawContents: any, contentType?: string) {
+  const file = urlToFile(url, path);
   file.save(rawContents).then(() => {
     if (contentType) {
       file.setMetadata({contentType});
@@ -77,8 +79,8 @@ export function saveRawContents(url: string, rawContents: any, contentType?: str
   });
 }
 
-export function fetchRawContents(url: string): Promise<Buffer> {
-  const file = urlToFile(url, RAW_CONTENTS_PATH);
+export function fetchRawContents(url: string, path: string): Promise<Buffer> {
+  const file = urlToFile(url, path);
   const cachedContents = file.download()
     .then(data => data[0])
     .catch(err => {

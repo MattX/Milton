@@ -2,6 +2,7 @@ import express = require('express')
 import * as readability from "./readability";
 import * as cache from "./cache";
 import * as fetcher from "./fetcher";
+import * as snapshot from "./snapshot";
 
 import configFile from './config.json';
 export const ENVIRONMENT = process.env.NODE_ENV || 'dev';
@@ -32,7 +33,7 @@ app.get("/fetch", async (req, res) => {
 
   const url = req.query.url.toString();
   console.log(`Fetching cached raw contents of ${url}`);
-  const cachedRawContents = await cache.fetchRawContents(url);
+  const cachedRawContents = await cache.fetchRawContents(url, cache.RAW_CONTENTS_PATH);
   res.status(200).end(cachedRawContents, 'binary');
 });
 
@@ -86,9 +87,14 @@ app.post("/simplify", async (req, res) => {
           updatedAt: Date.now(),
         });
         cache.saveManuscript(url, manuscript);
+
+        // try saving a PDF
+        console.log(`Caching PDF version of ${url}`);
+        const pdfData = snapshot.fetchPDF(url);
+        cache.saveRawContents(url, cache.PDF_PATH, pdfData, 'application/pdf');
       } else {
         // this article is not textual, so save the raw data and don't try to parse it with readability
-        cache.saveRawContents(url, response.rawData, response.contentType);
+        cache.saveRawContents(url, cache.RAW_CONTENTS_PATH, response.rawData, response.contentType);
 
         // yes this is a sloppy hack...
         manuscript = new cache.Manuscript({
