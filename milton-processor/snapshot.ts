@@ -19,8 +19,8 @@ export async function fetchPDF(url: string): Promise<Buffer> {
       page = await getBrowserPage();
     }
 
-    page.goto(url);
-    page.emulateMediaType("print");
+    await page.goto(url);
+    await page.emulateMediaType("screen");
 
     return page.pdf({ printBackground: true });
   } catch (error) {
@@ -28,16 +28,16 @@ export async function fetchPDF(url: string): Promise<Buffer> {
   }
 }
 
-export async function fetchScreenshot(url: string): Promise<Buffer|string> {
+export async function fetchScreenshot(url: string): Promise<Buffer> {
   try {
     if (!page) {
       page = await getBrowserPage();
     }
 
-    page.goto(url);
-    page.emulateMediaType("screen");
+    await page.goto(url);
+    await page.emulateMediaType("print");
 
-    return page.screenshot();
+    return page.screenshot({type: 'png', fullPage: true, encoding: 'binary'}) as Promise<Buffer>;
   } catch (error) {
     throw error;
   }

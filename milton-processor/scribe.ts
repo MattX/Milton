@@ -67,7 +67,7 @@ app.post("/simplify", async (req, res) => {
       return;
     }
     console.log(`Fetching contents of ${url}`);
-    fetcher.fetchArticle(url).then((response) => {
+    fetcher.fetchArticle(url).then(async (response) => {
       console.log(`Saving contents of ${url}`);
 
       if (response.isTextual()) {
@@ -90,8 +90,10 @@ app.post("/simplify", async (req, res) => {
 
         // try saving a PDF
         console.log(`Caching PDF version of ${url}`);
-        const pdfData = snapshot.fetchPDF(url);
-        cache.saveRawContents(url, cache.PDF_PATH, pdfData, 'application/pdf');
+        // const pdfData = await snapshot.fetchPDF(url);
+        // cache.saveRawContents(url, cache.PDF_PATH, pdfData, 'application/pdf');
+        const screenshotData = await snapshot.fetchScreenshot(url);
+        cache.saveRawContents(url, cache.SCREENSHOT_PATH, screenshotData, 'image/png');
       } else {
         // this article is not textual, so save the raw data and don't try to parse it with readability
         cache.saveRawContents(url, cache.RAW_CONTENTS_PATH, response.rawData, response.contentType);
