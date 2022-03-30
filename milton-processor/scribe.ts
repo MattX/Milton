@@ -121,4 +121,47 @@ app.post("/simplify", async (req, res) => {
   }
 });
 
+app.post("/backfill", async (req, res) => {
+  const url = req.body.page;
+  const refreshCache = (req.body.refresh as boolean);
+  const token = req.header('token');
+  console.log(`Backfilling snapshot of URL: ${url}`);
+  res.set('Access-Control-Allow-Origin', CONFIG.cors_client);
+
+  let manuscript: cache.Manuscript;
+  const articleCached = await cache.isCached(url);
+
+  if (articleCached && !refreshCache) {
+    console.log(`Found cached version of ${url}`);
+    manuscript = await cache.fetchManuscript(url);
+    res.send(manuscript.data);
+  } else {
+    if (token !== process.env.SCRIBE_AUTH_TOKEN) {
+      console.warn(`Unauthenticated fetch for URL: ${url} with token: ${token}`);
+      res.status(401).send(`Unauthenticated fetch request`);
+      return;
+    }
+    console.log(`Fetching contents of ${url}`);
+    fetcher.fetchArticle(url).then(async (response) => {
+      console.log(`Saving contents of ${url}`);
+
+      if (response.isTextual()) {
+        // try saving a PDF
+        console.log(`Caching snapshot version of ${url}`);
+        // const pdfData = await snapshot.fetchPDF(url);
+        // cache.saveRawContents(url, cache.PDF_PATH, pdfData, 'application/pdf');
+        const screenshotData = await snapshot.fetchScreenshot(url);
+        cache.saveRawContents(url, cache.SCREENSHOT_PATH, screenshotData, 'image/png');
+      } else {
+        console.log(`Skipping non-textual response`)
+      }
+
+      res.send(cache.sha256Hash(url));
+    }).catch((err) => {
+      console.warn(`Failed to fetch ${url} with error: ${err.message}`);
+      res.status(422).send(`Unable to fetch page: ${err.message}`);
+    });
+  }
+});
+
 exports.scribe = app;

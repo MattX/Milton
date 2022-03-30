@@ -50,7 +50,7 @@ function createStorageClient() {
   }
 }
 
-function sha256Hash(url: string): string {
+export function sha256Hash(url: string): string {
   return base64url.default.fromBase64(crypto.createHash('sha256').update(url).digest('base64'));
 }
 
