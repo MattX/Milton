@@ -1,8 +1,6 @@
 import chromium from "chrome-aws-lambda";
 import puppeteer from "puppeteer-core";
 
-let page: puppeteer.Page;
-
 async function getBrowserPage() {
   const browser = await puppeteer.launch({
     args: chromium.args,
@@ -15,9 +13,7 @@ async function getBrowserPage() {
 
 export async function fetchPDF(url: string): Promise<Buffer> {
   try {
-    if (!page) {
-      page = await getBrowserPage();
-    }
+    const page = await getBrowserPage();
 
     await page.goto(url);
     await page.emulateMediaType("screen");
@@ -30,9 +26,7 @@ export async function fetchPDF(url: string): Promise<Buffer> {
 
 export async function fetchScreenshot(url: string): Promise<Buffer> {
   try {
-    if (!page) {
-      page = await getBrowserPage();
-    }
+    const page = await getBrowserPage();
 
     await page.goto(url);
     await page.emulateMediaType("print");
