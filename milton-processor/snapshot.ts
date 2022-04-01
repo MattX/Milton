@@ -5,6 +5,7 @@ async function getBrowserPage() {
   const browser = await puppeteer.launch({
     args: chromium.args,
     defaultViewport: chromium.defaultViewport,
+    // executablePath: "/usr/local/Caskroom/google-chrome/latest/Google Chrome.app/Contents/MacOS/Google Chrome",
     executablePath: await chromium.executablePath,
     headless: chromium.headless
   });

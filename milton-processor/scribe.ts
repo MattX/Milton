@@ -32,8 +32,9 @@ app.get("/fetch", async (req, res) => {
   res.set('Access-Control-Allow-Origin', CONFIG.cors_client);
 
   const url = req.query.url.toString();
-  console.log(`Fetching cached raw contents of ${url}`);
-  const cachedRawContents = await cache.fetchRawContents(url, cache.RAW_CONTENTS_PATH);
+  const format = req.query.format.toString();
+  console.log(`Fetching cached raw contents of ${url} for ${format} format`);
+  const cachedRawContents = await cache.fetchRawContents(url, format);
   res.status(200).end(cachedRawContents, 'binary');
 });
 
