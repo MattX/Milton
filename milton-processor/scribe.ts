@@ -89,10 +89,8 @@ app.post("/simplify", async (req, res) => {
         });
         cache.saveManuscript(url, manuscript);
 
-        // try saving a PDF
+        // try saving a snapshot
         console.log(`Caching snapshot version of ${url}`);
-        // const pdfData = await snapshot.fetchPDF(url);
-        // cache.saveRawContents(url, cache.PDF_PATH, pdfData, 'application/pdf');
         const screenshotData = await snapshot.fetchScreenshot(url);
         cache.saveRawContents(url, cache.SCREENSHOT_PATH, screenshotData, 'image/png');
       } else {
