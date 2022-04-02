@@ -4,8 +4,10 @@ import base64url = require('base64url');
 import { ENVIRONMENT, CONFIG } from './scribe';
 
 
-const MANUSCRIPT_PATH = 'manuscript.json';
-const RAW_CONTENTS_PATH = 'raw_content';
+export const MANUSCRIPT_PATH = 'manuscript.json';
+export const RAW_CONTENTS_PATH = 'raw_content';
+export const PDF_PATH = 'snapshot.pdf'
+export const SCREENSHOT_PATH = 'screenshot.png'
 
 export interface ManuscriptData {
   url: string;
@@ -65,20 +67,20 @@ function urlToFile(url: string, filename: string): gcs.File {
   return bucket.file(key);
 }
 
-export function saveRawContents(url: string, rawContents: any, contentType?: string) {
-  const file = urlToFile(url, RAW_CONTENTS_PATH);
+export function saveRawContents(url: string, path: string, rawContents: any, contentType?: string) {
+  const file = urlToFile(url, path);
   file.save(rawContents).then(() => {
     if (contentType) {
       file.setMetadata({contentType});
     }
-    console.log(`Saved raw contents of URL (${url}) to cache`);
+    console.log(`Saved raw contents of URL (${url}) to cache with content-type (${contentType})`);
   }).catch((err) => {
     console.error(`Failed to save raw contents of URL (${url}) with error: ${err.message}`);
   });
 }
 
-export function fetchRawContents(url: string): Promise<Buffer> {
-  const file = urlToFile(url, RAW_CONTENTS_PATH);
+export function fetchRawContents(url: string, path: string): Promise<Buffer> {
+  const file = urlToFile(url, path);
   const cachedContents = file.download()
     .then(data => data[0])
     .catch(err => {

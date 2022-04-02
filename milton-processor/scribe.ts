@@ -2,6 +2,7 @@ import express = require('express')
 import * as readability from "./readability";
 import * as cache from "./cache";
 import * as fetcher from "./fetcher";
+import * as snapshot from "./snapshot";
 
 import configFile from './config.json';
 export const ENVIRONMENT = process.env.NODE_ENV || 'dev';
@@ -31,8 +32,9 @@ app.get("/fetch", async (req, res) => {
   res.set('Access-Control-Allow-Origin', CONFIG.cors_client);
 
   const url = req.query.url.toString();
-  console.log(`Fetching cached raw contents of ${url}`);
-  const cachedRawContents = await cache.fetchRawContents(url);
+  const format = req.query.format.toString();
+  console.log(`Fetching cached raw contents of ${url} for ${format} format`);
+  const cachedRawContents = await cache.fetchRawContents(url, format);
   res.status(200).end(cachedRawContents, 'binary');
 });
 
@@ -66,12 +68,12 @@ app.post("/simplify", async (req, res) => {
       return;
     }
     console.log(`Fetching contents of ${url}`);
-    fetcher.fetchArticle(url).then((response) => {
+    fetcher.fetchArticle(url).then(async (response) => {
       console.log(`Saving contents of ${url}`);
 
       if (response.isTextual()) {
         // save raw contents as text and perform readability parsing
-        cache.saveRawContents(url, response.body, response.contentType);
+        cache.saveRawContents(url, cache.RAW_CONTENTS_PATH, response.body, response.contentType);
 
         const po: readability.ParsedOutput = readability.parse(response.body, url);
         manuscript = new cache.Manuscript({
@@ -86,9 +88,14 @@ app.post("/simplify", async (req, res) => {
           updatedAt: Date.now(),
         });
         cache.saveManuscript(url, manuscript);
+
+        // try saving a snapshot
+        console.log(`Caching snapshot version of ${url}`);
+        const screenshotData = await snapshot.fetchScreenshot(url);
+        cache.saveRawContents(url, cache.SCREENSHOT_PATH, screenshotData, 'image/png');
       } else {
         // this article is not textual, so save the raw data and don't try to parse it with readability
-        cache.saveRawContents(url, response.rawData, response.contentType);
+        cache.saveRawContents(url, cache.RAW_CONTENTS_PATH, response.rawData, response.contentType);
 
         // yes this is a sloppy hack...
         manuscript = new cache.Manuscript({

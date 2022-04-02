@@ -15,20 +15,21 @@
     "start": "node ./index.js",
     "gcp-build": "tsc -p .",
     "deploy-appengine": "gcloud app deploy",
-    "deploy-function": "gcloud functions deploy scribe --runtime nodejs10 --allow-unauthenticated --trigger-http --memory 512MB --service-account scribe@dsouza-proving-ground.iam.gserviceaccount.com --env-vars-file env.yaml"
+    "deploy-function": "gcloud functions deploy scribe --runtime nodejs10 --allow-unauthenticated --trigger-http --memory 8192MB --timeout 5m --service-account scribe@dsouza-proving-ground.iam.gserviceaccount.com --env-vars-file env.yaml"
   },
   "dependencies": {
     "@google-cloud/storage": "^5.7.0",
-    "@mozilla/readability": "github:mozilla/readability",
+    "@mozilla/readability": "^0.4.2",
     "base64url": "^3.0.1",
+    "chrome-aws-lambda": "^10.1.0",
     "dompurify": "^2.2.6",
     "express": "^4.16.3",
     "fast-crc32c": "^2.0.0",
     "jsdom": "^16.4.0",
-    "readability": "github:mozilla/readability",
+    "puppeteer-core": "^13.5.1",
     "request-promise-native": "^1.0.9",
     "typed-rest-client": "^1.8.0",
-    "typescript": "^3.9.7"
+    "typescript": "^4.6.3"
   },
   "devDependencies": {
     "@types/dompurify": "^2.1.0",
