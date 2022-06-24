@@ -25,7 +25,7 @@
     "dompurify": "^2.2.6",
     "express": "^4.16.3",
     "fast-crc32c": "^2.0.0",
-    "jsdom": "^16.4.0",
+    "jsdom": "^16.5.0",
     "puppeteer-core": "^13.5.1",
     "request-promise-native": "^1.0.9",
     "typed-rest-client": "^1.8.0",
