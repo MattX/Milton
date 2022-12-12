@@ -23,7 +23,7 @@
     "base64url": "^3.0.1",
     "chrome-aws-lambda": "^10.1.0",
     "dompurify": "^2.2.6",
-    "express": "^4.16.3",
+    "express": "^4.17.3",
     "fast-crc32c": "^2.0.0",
     "jsdom": "^16.4.0",
     "puppeteer-core": "^13.5.1",
