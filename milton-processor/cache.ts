@@ -79,15 +79,28 @@ export function saveRawContents(url: string, path: string, rawContents: any, con
   });
 }
 
-export function fetchRawContents(url: string, path: string): Promise<Buffer> {
+export interface CachedRawContents {
+  contentType: string;
+  data: Buffer;
+}
+
+export function fetchRawContents(url: string, path: string): Promise<CachedRawContents> {
   const file = urlToFile(url, path);
+  const contentType = file.getMetadata()
+    .then(metadata => metadata[0].contentType as string)
+    .catch(err => {
+      console.warn(`Failed to fetch content type of (${url}) with error: ${err.message}`)
+      return 'application/octet-stream'
+    });
   const cachedContents = file.download()
     .then(data => data[0])
     .catch(err => {
       console.warn(`Failed to fetch raw content of URL (${url}) with error: ${err.message}`)
       throw err;
     });
-  return cachedContents;
+  return Promise.all([contentType, cachedContents]).then(valArray => {
+    return {contentType: valArray[0], data: valArray[1]}
+  })
 }
 
 export function saveManuscript(url: string, contents: Manuscript) {

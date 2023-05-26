@@ -35,7 +35,11 @@ app.get("/fetch", async (req, res) => {
   const format = req.query.format.toString();
   console.log(`Fetching cached raw contents of ${url} for ${format} format`);
   const cachedRawContents = await cache.fetchRawContents(url, format);
-  res.status(200).end(cachedRawContents, 'binary');
+  res.writeHead(200, {
+    'Content-Type': cachedRawContents.contentType,
+    'Content-Length': cachedRawContents.data.length,
+  });
+  res.end(cachedRawContents.data, 'binary');
 });
 
 app.options("/simplify", (req, res) => {
