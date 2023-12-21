@@ -6,7 +6,7 @@
       "node_port": 8081
   },
   "prod": {
-      "cors_client": "https://cdn.dsouza.io",
+      "cors_client": "https://studio.dsouza.io",
       "cache_prefix": "prod",
       "node_port": 8080
   }
