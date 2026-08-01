@@ -4,9 +4,10 @@ import type {
   OccurrenceResult,
   SearchResponse,
 } from "../shared/api";
+import { chunk, runBatched } from "./d1";
 import { decodeCursor, encodeCursor, toFtsQuery } from "./search-query";
 import { MAX_BACKFILL_BACKLOG, runtimeLimits, type RuntimeLimits } from "./limits";
-import { BACKFILL_ENABLED, getState, setState } from "./state";
+import { BACKFILL_ENABLED, setState } from "./state";
 import type { DiscordMessage, Env } from "./types";
 import { extractLinks, fallbackTitle } from "./urls";
 
@@ -85,32 +86,31 @@ export async function persistDiscordMessages(
   }
 
   if (!linkRecords.length) return;
-  for (const articleChunk of chunks([...articles.values()], 50)) {
-    await env.DB.batch(articleChunk.map((article) => env.DB.prepare(
-      `INSERT INTO articles (
-          normalized_url, original_url, domain, title,
-          first_posted_at, last_posted_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(normalized_url) DO UPDATE SET
-          original_url = excluded.original_url,
-          title = CASE WHEN articles.title = '' THEN excluded.title ELSE articles.title END,
-          first_posted_at = min(articles.first_posted_at, excluded.first_posted_at),
-          last_posted_at = max(articles.last_posted_at, excluded.last_posted_at),
-          updated_at = excluded.updated_at`,
-    ).bind(
-          article.normalizedUrl,
-          article.originalUrl,
-          article.domain,
-          article.title,
-          article.firstPostedAt,
-          article.lastPostedAt,
-          now,
-          now,
-        )));
-  }
+
+  await runBatched(env.DB, [...articles.values()].map((article) => env.DB.prepare(
+    `INSERT INTO articles (
+       normalized_url, original_url, domain, title,
+       first_posted_at, last_posted_at, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(normalized_url) DO UPDATE SET
+       original_url = excluded.original_url,
+       title = CASE WHEN articles.title = '' THEN excluded.title ELSE articles.title END,
+       first_posted_at = min(articles.first_posted_at, excluded.first_posted_at),
+       last_posted_at = max(articles.last_posted_at, excluded.last_posted_at),
+       updated_at = excluded.updated_at`,
+  ).bind(
+    article.normalizedUrl,
+    article.originalUrl,
+    article.domain,
+    article.title,
+    article.firstPostedAt,
+    article.lastPostedAt,
+    now,
+    now,
+  )));
 
   const storedArticles = new Map<string, { id: number; extractionStatus: string }>();
-  for (const urlChunk of chunks([...articles.keys()], 90)) {
+  for (const urlChunk of chunk([...articles.keys()], 90)) {
     const placeholders = urlChunk.map(() => "?").join(",");
     const result = await env.DB.prepare(
       `SELECT id, normalized_url, extraction_status FROM articles
@@ -121,50 +121,43 @@ export async function persistDiscordMessages(
     }
   }
 
-  const occurrenceStatements: D1PreparedStatement[] = [];
-  const seenOccurrences = new Set<string>();
+  const occurrences: D1PreparedStatement[] = [];
+  const seen = new Set<string>();
   for (const record of linkRecords) {
     const article = storedArticles.get(record.normalizedUrl);
     if (!article) throw new Error(`Could not find stored article ${record.normalizedUrl}`);
-    const occurrenceKey = `${article.id}:${record.message.id}`;
-    if (seenOccurrences.has(occurrenceKey)) continue;
-    seenOccurrences.add(occurrenceKey);
-    const authorName = record.message.author.global_name || record.message.author.username;
-    const messageUrl = `https://discord.com/channels/${env.DISCORD_GUILD_ID}/${record.message.channel_id}/${record.message.id}`;
-    occurrenceStatements.push(env.DB.prepare(
-          `INSERT OR IGNORE INTO occurrences (
-            article_id, guild_id, channel_id, channel_name, message_id,
-            author_id, author_name, posted_at, message_url
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).bind(
-          article.id,
-          env.DISCORD_GUILD_ID,
-          record.message.channel_id,
-          channelName,
-          record.message.id,
-          record.message.author.id,
-          authorName,
-          record.message.timestamp,
-          messageUrl,
-        ));
+    const key = `${article.id}:${record.message.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    occurrences.push(env.DB.prepare(
+      `INSERT OR IGNORE INTO occurrences (
+         article_id, guild_id, channel_id, channel_name, message_id,
+         author_id, author_name, posted_at, message_url
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      article.id,
+      env.DISCORD_GUILD_ID,
+      record.message.channel_id,
+      channelName,
+      record.message.id,
+      record.message.author.id,
+      record.message.author.global_name || record.message.author.username,
+      record.message.timestamp,
+      `https://discord.com/channels/${env.DISCORD_GUILD_ID}/${record.message.channel_id}/${record.message.id}`,
+    ));
   }
-  for (const statementChunk of chunks(occurrenceStatements, 50)) {
-    await env.DB.batch(statementChunk);
-  }
+  await runBatched(env.DB, occurrences);
 
-  const jobStatements = [...storedArticles.values()]
+  await runBatched(env.DB, [...storedArticles.values()]
     .filter((article) => article.extractionStatus === "pending")
     .map((article) => env.DB.prepare(
-          `INSERT INTO extraction_jobs (
-            article_id, priority, status, attempts, created_at, updated_at
-          ) VALUES (?, ?, 'pending', 0, ?, ?)
-          ON CONFLICT(article_id) DO UPDATE SET
-            priority = min(extraction_jobs.priority, excluded.priority),
-            updated_at = excluded.updated_at`,
-        ).bind(article.id, priority, now, now));
-  for (const statementChunk of chunks(jobStatements, 50)) {
-    await env.DB.batch(statementChunk);
-  }
+      `INSERT INTO extraction_jobs (
+         article_id, priority, status, attempts, created_at, updated_at
+       ) VALUES (?, ?, 'pending', 0, ?, ?)
+       ON CONFLICT(article_id) DO UPDATE SET
+         priority = min(extraction_jobs.priority, excluded.priority),
+         updated_at = excluded.updated_at`,
+    ).bind(article.id, priority, now, now)));
 }
 
 export async function searchArticles(
@@ -330,9 +323,6 @@ export function setBackfillEnabled(db: D1Database, enabled: boolean): Promise<vo
   return setState(db, BACKFILL_ENABLED, enabled ? "1" : "0");
 }
 
-export async function isBackfillEnabled(db: D1Database): Promise<boolean> {
-  return await getState(db, BACKFILL_ENABLED) === "1";
-}
 
 async function latestOccurrences(
   db: D1Database,
@@ -363,10 +353,3 @@ function mapOccurrence(row: OccurrenceRow): OccurrenceResult {
   };
 }
 
-function chunks<T>(values: T[], size: number): T[][] {
-  const output: T[][] = [];
-  for (let index = 0; index < values.length; index += size) {
-    output.push(values.slice(index, index + size));
-  }
-  return output;
-}

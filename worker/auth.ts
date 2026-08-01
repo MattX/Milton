@@ -1,4 +1,5 @@
 import type { SessionUser } from "../shared/api";
+import { splitConfig } from "./config";
 import type { DiscordUser, Env } from "./types";
 
 const SESSION_COOKIE = "milton_session";
@@ -19,19 +20,8 @@ interface DiscordMemberResponse {
   nick?: string | null;
 }
 
-export function adminIds(env: Env): Set<string> {
+function adminIds(env: Env): Set<string> {
   return new Set(splitConfig(env.ADMIN_DISCORD_USER_IDS));
-}
-
-export function splitConfig(value: string): string[] {
-  if (!value.trim()) return [];
-  try {
-    const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) return parsed.map(String).map((item) => item.trim()).filter(Boolean);
-  } catch {
-    // Comma-separated configuration is easier to set in the dashboard.
-  }
-  return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
 export async function beginDiscordLogin(request: Request, env: Env): Promise<Response> {

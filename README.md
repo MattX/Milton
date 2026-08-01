@@ -9,7 +9,7 @@ The application is a TypeScript Cloudflare Worker with a React/Vite UI.
 - A one-minute Cron Trigger polls Discord's REST API using durable per-channel cursors.
 - D1 stores articles, every Discord occurrence, backfill state, quota accounting, and an FTS5 index.
 - Cloudflare Queue delivers idempotent extraction jobs to Browser Run's `/markdown` Quick Action.
-- New links take priority. Historical channel and public-thread backfill pauses at the configured free-tier browser, backlog, and database thresholds.
+- New links take priority. Historical backfill pauses at the configured free-tier browser-time and backlog thresholds.
 - Discord OAuth grants an eight-hour signed session only after `guilds.members.read` confirms membership in the configured server.
 
 Reader mode is intentionally omitted. Failed extractions remain searchable by title/URL and retain their Discord backlinks.
@@ -48,8 +48,8 @@ Copy the returned D1 database ID into `wrangler.jsonc`. Then configure the non-s
 
 - `DISCORD_APPLICATION_ID`
 - `DISCORD_GUILD_ID`
-- `DISCORD_CHANNEL_IDS`, as comma-separated IDs or a JSON array
-- `ADMIN_DISCORD_USER_IDS`, as comma-separated IDs or a JSON array
+- `DISCORD_CHANNEL_IDS`, as comma-separated IDs
+- `ADMIN_DISCORD_USER_IDS`, as comma-separated IDs
 
 Install secrets without putting them in the repository:
 
@@ -79,15 +79,16 @@ Create one application in the Discord Developer Portal:
 
 The OAuth login requests `identify` and `guilds.members.read`; it does not request the user's complete guild list. Discord access tokens are discarded after each membership check.
 
-After deployment, sign in as a configured administrator. Live polling starts automatically. Use the Indexer status panel to start the historical backfill and monitor D1 size, browser time, pending jobs, failures, and channel progress.
+After deployment, sign in as a configured administrator. Live polling starts automatically. Use the Indexer status panel to start the historical backfill and monitor browser time, pending jobs, failures, and channel progress.
 
 ## Free-tier behavior and upgrading
 
-Defaults reserve two of Browser Run's ten daily free minutes for newly shared links and allow backfill to consume the other eight. Backfill pauses at 100 pending historical jobs or 400 MB of D1 storage. These thresholds can be changed with:
+Defaults reserve two of Browser Run's ten daily free minutes for newly shared links and allow backfill to consume the other eight. Backfill also pauses at 100 pending historical jobs. These thresholds can be changed with:
 
 - `BROWSER_DAILY_LIMIT_MS`
 - `BACKFILL_DAILY_BUDGET_MS`
-- `DATABASE_WARNING_BYTES`
+
+D1 exposes no database size over SQL, so there is no storage threshold; the daily browser budget is what bounds growth. Check size with `npx wrangler d1 info milton`.
 
 Workers Paid expands the same D1 database from 500 MB to 10 GB and raises Browser Run and CPU limits. No data migration is needed. After upgrading, increase the configured limits and redeploy so Browser Run associates the Worker with the paid plan.
 
@@ -95,6 +96,8 @@ Workers Paid expands the same D1 database from 500 MB to 10 GB and raises Browse
 
 - Polling and extraction are idempotent; reposting a URL creates another occurrence without another article row.
 - A Discord cursor advances only after its messages have been stored.
-- Extraction failures retry three times and then become link-only results, with the final Queue attempt sent to the dead-letter queue.
-- Active public threads are discovered continuously. Archived public threads are discovered incrementally during backfill.
+- Extraction failures retry three times and then become link-only results.
+- Queue messages are only a wake-up nudge; `extraction_jobs.next_attempt_at` is the real schedule, so quota deferrals never consume a delivery attempt.
+- Active public threads are discovered continuously and backfilled like any other channel. Archived threads are not indexed.
+- Each run polls a bounded number of channels, oldest-polled first, to stay inside the Workers Free subrequest budget.
 - Removing someone from Discord revokes access when their current session expires, within at most eight hours.
