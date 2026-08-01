@@ -5,12 +5,17 @@ describe("URL ingestion", () => {
   it("extracts, normalizes, and deduplicates external links", () => {
     const links = extractLinks(
       "Read <https://Example.com/story?utm_source=discord&id=4#comments> " +
-      "and again https://example.com/story?id=4).",
+      "and again https://example.com/story?utm_source=discord&id=4).",
     );
     expect(links).toEqual([{
-      normalizedUrl: "https://example.com/story?id=4",
+      normalizedUrl: "https://example.com/story?utm_source=discord&id=4",
       domain: "example.com",
     }]);
+  });
+
+  it("preserves query parameters because they may affect page identity", () => {
+    expect(normalizeUrl("https://example.com/story?utm_source=discord&id=4")?.normalizedUrl)
+      .toBe("https://example.com/story?utm_source=discord&id=4");
   });
 
   it("rejects Discord, credentialed, and private-network URLs", () => {

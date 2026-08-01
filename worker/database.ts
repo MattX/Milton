@@ -4,9 +4,10 @@ import type {
   OccurrenceResult,
   SearchResponse,
 } from "../shared/api";
+import { backfillPolicy, type BackfillGate } from "./backfill-policy";
 import { chunk, runBatched } from "./d1";
 import { decodeCursor, encodeCursor, toFtsQuery } from "./search-query";
-import { MAX_BACKFILL_BACKLOG, runtimeLimits, type RuntimeLimits } from "./limits";
+import { runtimeLimits } from "./limits";
 import { BACKFILL_ENABLED, setState } from "./state";
 import type { DiscordMessage, Env } from "./types";
 import { extractLinks, fallbackTitle } from "./urls";
@@ -19,7 +20,6 @@ interface ArticleRow {
   title: string;
   excerpt: string;
   extraction_status: "pending" | "indexed" | "failed";
-  occurrence_count: number;
 }
 
 interface OccurrenceRow {
@@ -54,8 +54,7 @@ export async function persistDiscordMessages(
       articles.set(link.normalizedUrl, {
         normalizedUrl: link.normalizedUrl,
         domain: link.domain,
-        title: existing?.title || embedTitleFor(message, link.domain)
-          || fallbackTitle(link.normalizedUrl).slice(0, 300),
+        title: existing?.title || fallbackTitle(link.normalizedUrl).slice(0, 300),
         firstPostedAt: minString(existing?.firstPostedAt, message.timestamp),
         lastPostedAt: maxString(existing?.lastPostedAt, message.timestamp),
       });
@@ -70,8 +69,8 @@ export async function persistDiscordMessages(
        first_posted_at, last_posted_at, created_at, updated_at
      ) VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(normalized_url) DO UPDATE SET
-       -- Extraction owns the title once it succeeds. Until then take the newest
-       -- one seen, so an embed title can still replace a URL-derived guess.
+       -- Extraction owns the title once it succeeds. Before then the URL-derived
+       -- fallback is stable, regardless of which Discord occurrence was newest.
        title = CASE WHEN articles.extraction_status = 'indexed'
                     THEN articles.title ELSE excluded.title END,
        first_posted_at = min(articles.first_posted_at, excluded.first_posted_at),
@@ -142,8 +141,7 @@ export async function searchArticles(
   const ftsQuery = toFtsQuery(query);
   const page = await paginate<ArticleRow>(cursor, (limit, offset) => db.prepare(
     `SELECT
-       a.id, a.normalized_url, a.domain, a.title, a.excerpt, a.extraction_status,
-       (SELECT count(*) FROM occurrences o WHERE o.article_id = a.id) occurrence_count
+       a.id, a.normalized_url, a.domain, a.title, a.excerpt, a.extraction_status
      ${ftsQuery
        ? `FROM articles_fts JOIN articles a ON a.id = articles_fts.rowid
           WHERE articles_fts MATCH ?
@@ -169,27 +167,10 @@ export async function searchArticles(
         domain: row.domain,
         excerpt: row.excerpt,
         extractionStatus: row.extraction_status,
-        occurrenceCount: row.occurrence_count,
         latestOccurrence: mapOccurrence(occurrence),
       }];
     }),
   };
-}
-
-export async function listOccurrences(
-  db: D1Database,
-  articleId: number,
-  cursor: string | null,
-): Promise<{ items: OccurrenceResult[]; nextCursor: string | null }> {
-  const page = await paginate<OccurrenceRow>(cursor, (limit, offset) => db.prepare(
-    `SELECT id, article_id, channel_name, author_name, posted_at, message_url
-     FROM occurrences
-     WHERE article_id = ?
-     ORDER BY posted_at DESC, id DESC
-     LIMIT ? OFFSET ?`,
-  ).bind(articleId, limit, offset));
-
-  return { items: page.items.map(mapOccurrence), nextCursor: page.nextCursor };
 }
 
 /** Offset paging: fetch one extra row to learn whether another page exists. */
@@ -203,13 +184,6 @@ async function paginate<T>(
     items: results.slice(0, PAGE_SIZE),
     nextCursor: results.length > PAGE_SIZE ? encodeCursor(offset + PAGE_SIZE) : null,
   };
-}
-
-/** The inputs that decide whether historical backfill may run right now. */
-export interface BackfillGate {
-  enabled: boolean;
-  browserMillisecondsToday: number;
-  pendingBackfillJobs: number;
 }
 
 export function utcDay(at: Date = new Date()): string {
@@ -243,17 +217,6 @@ export async function loadBackfillGate(db: D1Database): Promise<BackfillGate> {
   };
 }
 
-export function backfillPausedReason(gate: BackfillGate, limits: RuntimeLimits): string | null {
-  if (!gate.enabled) return "Backfill has not been started.";
-  if (gate.browserMillisecondsToday >= limits.backfillDailyBudgetMs) {
-    return "The historical Browser Run budget is exhausted for today.";
-  }
-  if (gate.pendingBackfillJobs >= MAX_BACKFILL_BACKLOG) {
-    return `The historical extraction backlog has reached ${MAX_BACKFILL_BACKLOG} articles.`;
-  }
-  return null;
-}
-
 export async function getAdminStatus(env: Env): Promise<AdminStatus> {
   const limits = runtimeLimits(env);
   const [gate, jobs, channels] = await Promise.all([
@@ -274,7 +237,7 @@ export async function getAdminStatus(env: Env): Promise<AdminStatus> {
     browserMillisecondsToday: gate.browserMillisecondsToday,
     browserDailyLimitMilliseconds: limits.browserDailyLimitMs,
     backfillEnabled: gate.enabled,
-    backfillPausedReason: backfillPausedReason(gate, limits),
+    backfillPausedReason: backfillPolicy(gate, limits).pausedReason,
     pendingLiveJobs: jobs?.pending_live ?? 0,
     pendingBackfillJobs: gate.pendingBackfillJobs,
     failedJobs: jobs?.failed ?? 0,
@@ -295,29 +258,19 @@ async function latestOccurrences(
   const output = new Map<number, OccurrenceRow>();
   if (!articleIds.length) return output;
   const placeholders = articleIds.map(() => "?").join(",");
-  // SQLite pairs the bare columns with the row that supplied max(posted_at), so
-  // this returns one row per article instead of every share of a popular link.
   const result = await db.prepare(
-    `SELECT id, article_id, channel_name, author_name, max(posted_at) posted_at, message_url
-     FROM occurrences
-     WHERE article_id IN (${placeholders})
-     GROUP BY article_id`,
+    `SELECT o.id, o.article_id, o.channel_name, o.author_name, o.posted_at, o.message_url
+     FROM occurrences o
+     WHERE o.article_id IN (${placeholders})
+       AND o.id = (
+         SELECT latest.id FROM occurrences latest
+         WHERE latest.article_id = o.article_id
+         ORDER BY latest.posted_at DESC, latest.id DESC
+         LIMIT 1
+       )`,
   ).bind(...articleIds).all<OccurrenceRow>();
   for (const row of result.results) output.set(row.article_id, row);
   return output;
-}
-
-/** Discord unfurls links into embeds; its title beats one guessed from the path. */
-function embedTitleFor(message: DiscordMessage, domain: string): string | undefined {
-  const embed = message.embeds?.find((candidate) => {
-    if (!candidate.url) return false;
-    try {
-      return new URL(candidate.url).hostname === domain;
-    } catch {
-      return false;
-    }
-  });
-  return embed?.title?.slice(0, 300);
 }
 
 function minString(left: string | undefined, right: string): string {
@@ -337,4 +290,3 @@ function mapOccurrence(row: OccurrenceRow): OccurrenceResult {
     messageUrl: row.message_url,
   };
 }
-

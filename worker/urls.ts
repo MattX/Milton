@@ -1,14 +1,3 @@
-const TRACKING_PARAMETERS = new Set([
-  "fbclid",
-  "gclid",
-  "dclid",
-  "msclkid",
-  "mc_cid",
-  "mc_eid",
-  "igshid",
-  "ref_src",
-]);
-
 const DISCORD_HOSTS = new Set([
   "discord.com",
   "www.discord.com",
@@ -77,12 +66,6 @@ export function normalizeUrl(raw: string): NormalizedLink | null {
   if (PRIVATE_HOST_PATTERNS.some((pattern) => pattern.test(hostname))) return null;
 
   url.hash = "";
-  for (const key of [...url.searchParams.keys()]) {
-    if (key.toLowerCase().startsWith("utm_") || TRACKING_PARAMETERS.has(key.toLowerCase())) {
-      url.searchParams.delete(key);
-    }
-  }
-
   if ((url.protocol === "https:" && url.port === "443") || (url.protocol === "http:" && url.port === "80")) {
     url.port = "";
   }

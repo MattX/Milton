@@ -1,7 +1,7 @@
-import { splitConfig } from "./config";
 import { runBatched } from "./d1";
+import { backfillPolicy } from "./backfill-policy";
+import { extremeSnowflake, initialChannelCursor } from "./discord-cursors";
 import {
-  backfillPausedReason,
   loadBackfillGate,
   persistDiscordMessages,
 } from "./database";
@@ -48,7 +48,7 @@ export async function runScheduledIngestion(env: Env): Promise<void> {
   const cursors = await env.DB.prepare(
     `SELECT channel_id, channel_name, live_after_id, backfill_before_id, initialized
      FROM channel_cursors
-     ORDER BY is_thread, updated_at
+     ORDER BY updated_at
      LIMIT ?`,
   ).bind(CHANNELS_PER_RUN).all<CursorRow>();
 
@@ -58,9 +58,9 @@ export async function runScheduledIngestion(env: Env): Promise<void> {
     ));
   }
 
-  const paused = backfillPausedReason(await loadBackfillGate(env.DB), runtimeLimits(env));
-  if (!paused) await step("backfill", () => runOneBackfillPage(env));
-  await step("dispatch", () => dispatchPendingJobs(env, paused === null));
+  const policy = backfillPolicy(await loadBackfillGate(env.DB), runtimeLimits(env));
+  if (policy.mayFetchHistory) await step("backfill", () => runOneBackfillPage(env));
+  await step("dispatch", () => dispatchPendingJobs(env, policy.mayDispatchHistory));
 }
 
 /** One failing channel must not cost us the rest of the run. */
@@ -73,62 +73,44 @@ async function step(label: string, run: () => Promise<void>): Promise<void> {
 }
 
 async function discoverChannels(env: Env): Promise<void> {
-  const configured = splitConfig(env.DISCORD_CHANNEL_IDS);
-  if (!configured.length) throw new Error("DISCORD_CHANNEL_IDS is empty");
+  // Both endpoints are guild-scoped, so a mistaken channel ID cannot cross the
+  // guild's authorization boundary. Discord omits threads from the channel list.
+  const [channels, active] = await Promise.all([
+    discordFetch<DiscordChannel[]>(env, `/guilds/${env.DISCORD_GUILD_ID}/channels`),
+    discordFetch<DiscordThreadList>(env, `/guilds/${env.DISCORD_GUILD_ID}/threads/active`),
+  ]);
+  const discovered = [
+    ...channels.filter((channel) => TEXT_CHANNEL_TYPES.has(channel.type))
+      .map((channel) => ({ channel, isThread: false })),
+    ...active.threads.filter((thread) => THREAD_TYPES.has(thread.type))
+      .map((channel) => ({ channel, isThread: true })),
+  ];
 
-  const discovered: Array<{ channel: DiscordChannel; isThread: boolean }> = [];
-  for (const channelId of configured) {
-    try {
-      const channel = await discordFetch<DiscordChannel>(env, `/channels/${channelId}`);
-      if (TEXT_CHANNEL_TYPES.has(channel.type)) discovered.push({ channel, isThread: false });
-    } catch (error) {
-      console.error(`Milton could not read channel ${channelId}`, error);
-    }
-  }
-
-  // Active threads only. Archived threads stop receiving messages, so polling them
-  // forever would grow channel_cursors without bound for no new content.
-  const active = await discordFetch<DiscordThreadList>(
-    env,
-    `/guilds/${env.DISCORD_GUILD_ID}/threads/active`,
-  );
-  const parents = new Set(configured);
-  for (const thread of active.threads) {
-    if (thread.parent_id && parents.has(thread.parent_id) && THREAD_TYPES.has(thread.type)) {
-      discovered.push({ channel: thread, isThread: true });
-    }
-  }
-
-  await upsertChannels(env.DB, discovered);
+  await upsertChannels(env.DB, discovered, env.DISCORD_GUILD_ID);
+  await retireInactiveThreads(env.DB, new Set(active.threads.map((thread) => thread.id)));
 }
 
 /**
- * The first page of an existing channel is history, not news, so it is indexed at
- * backfill priority and stays behind the daily budget gate. Only messages that
- * arrive after this point count as live.
+ * Establish the live/history boundary without indexing existing messages. Backfill
+ * begins just above the newest snowflake, while subsequent messages are live.
  */
 async function initializeChannel(env: Env, cursor: CursorRow): Promise<void> {
+  const startedAt = Date.now();
   const messages = await discordFetch<DiscordMessage[]>(
     env,
     `/channels/${cursor.channel_id}/messages?limit=${MESSAGE_PAGE_SIZE}`,
   );
-  if (messages.length) {
-    await persistDiscordMessages(env, messages, cursor.channel_name, HISTORY_PRIORITY);
-  }
-
-  const ids = messages.map((message) => message.id);
+  const initial = initialChannelCursor(messages.map((message) => message.id), startedAt);
   await env.DB.prepare(
     `UPDATE channel_cursors
      SET initialized = ?, live_after_id = ?, backfill_before_id = ?,
          backfill_complete = ?, updated_at = ?
      WHERE channel_id = ?`,
   ).bind(
-    // An empty channel has no snowflake to poll after. Leaving it uninitialized
-    // means we retry later instead of stranding it with a null cursor forever.
-    messages.length ? 1 : 0,
-    extremeSnowflake(ids, "max"),
-    extremeSnowflake(ids, "min"),
-    messages.length < MESSAGE_PAGE_SIZE ? 1 : 0,
+    1,
+    initial.liveAfterId,
+    initial.backfillBeforeId,
+    initial.backfillComplete ? 1 : 0,
     new Date().toISOString(),
     cursor.channel_id,
   ).run();
@@ -230,6 +212,7 @@ async function resetStaleJobs(db: D1Database): Promise<void> {
 async function upsertChannels(
   db: D1Database,
   values: Array<{ channel: DiscordChannel; isThread: boolean }>,
+  guildId: string,
 ): Promise<void> {
   const now = new Date().toISOString();
   await runBatched(db, values.map(({ channel, isThread }) => db.prepare(
@@ -244,12 +227,20 @@ async function upsertChannels(
     // round-robin, so rediscovery must not push a channel back to the front.
   ).bind(
     channel.id,
-    channel.guild_id || "",
+    guildId,
     channel.parent_id || null,
     channel.name || channel.id,
     isThread ? 1 : 0,
     now,
   )));
+}
+
+async function retireInactiveThreads(db: D1Database, activeIds: Set<string>): Promise<void> {
+  const existing = await db.prepare("SELECT channel_id FROM channel_cursors WHERE is_thread = 1")
+    .all<{ channel_id: string }>();
+  await runBatched(db, existing.results
+    .filter((row) => !activeIds.has(row.channel_id))
+    .map((row) => db.prepare("DELETE FROM channel_cursors WHERE channel_id = ?").bind(row.channel_id)));
 }
 
 async function discordFetch<T>(env: Env, path: string): Promise<T> {
@@ -268,14 +259,6 @@ async function discordFetch<T>(env: Env, path: string): Promise<T> {
     throw new Error(`Discord ${response.status} for ${path}: ${body}`);
   }
   return response.json<T>();
-}
-
-function extremeSnowflake(values: string[], pick: "min" | "max"): string | null {
-  return values.reduce<string | null>((chosen, value) => {
-    if (chosen === null) return value;
-    const isLower = BigInt(value) < BigInt(chosen);
-    return isLower === (pick === "min") ? value : chosen;
-  }, null);
 }
 
 function assertDiscordConfiguration(env: Env): void {

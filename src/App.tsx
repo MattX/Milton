@@ -2,7 +2,6 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import type {
   AdminStatus,
   ArticleResult,
-  OccurrenceResult,
   SearchResponse,
   SessionUser,
 } from "../shared/api";
@@ -10,11 +9,6 @@ import type {
 interface SessionResponse {
   authenticated: boolean;
   user?: SessionUser;
-}
-
-interface OccurrencesResponse {
-  items: OccurrenceResult[];
-  nextCursor: string | null;
 }
 
 export default function App() {
@@ -152,34 +146,6 @@ export default function App() {
 }
 
 function ResultCard({ result }: { result: ArticleResult }) {
-  const [expanded, setExpanded] = useState(false);
-  const [occurrences, setOccurrences] = useState<OccurrenceResult[]>([result.latestOccurrence]);
-  const [loading, setLoading] = useState(false);
-
-  async function toggleOccurrences() {
-    const next = !expanded;
-    setExpanded(next);
-    if (!next || occurrences.length >= result.occurrenceCount) return;
-    setLoading(true);
-    try {
-      const items: OccurrenceResult[] = [];
-      let cursor: string | null = null;
-      // The endpoint pages at 20, so follow the cursor until the list is whole.
-      do {
-        const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-        const page: OccurrencesResponse =
-          await api<OccurrencesResponse>(`/api/articles/${result.id}/occurrences${query}`);
-        items.push(...page.items);
-        cursor = page.nextCursor;
-      } while (cursor && items.length < result.occurrenceCount);
-      setOccurrences(items);
-    } catch {
-      // Keep the latest occurrence already on screen rather than emptying the card.
-    } finally {
-      setLoading(false);
-    }
-  }
-
   return (
     <article className="result-card">
       <div className="domain-line">
@@ -194,25 +160,10 @@ function ResultCard({ result }: { result: ArticleResult }) {
         <a className="discussion-link" href={result.latestOccurrence.messageUrl} target="_blank" rel="noreferrer">
           Open discussion ↗
         </a>
-        {result.occurrenceCount > 1 && (
-          <button className="text-button" onClick={() => void toggleOccurrences()}>
-            {expanded ? "Hide" : `View all ${result.occurrenceCount} shares`}
-          </button>
-        )}
       </div>
       <p className="shared-by">
         Shared by {result.latestOccurrence.authorName} in #{result.latestOccurrence.channelName} · {relativeDate(result.latestOccurrence.postedAt)}
       </p>
-      {expanded && (
-        <div className="occurrences">
-          {loading ? <span>Loading discussions…</span> : occurrences.map((occurrence) => (
-            <a key={occurrence.id} href={occurrence.messageUrl} target="_blank" rel="noreferrer">
-              <strong>#{occurrence.channelName}</strong>
-              <span>{occurrence.authorName} · {relativeDate(occurrence.postedAt)}</span>
-            </a>
-          ))}
-        </div>
-      )}
     </article>
   );
 }

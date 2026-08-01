@@ -10,7 +10,6 @@ export interface Env {
   DISCORD_CLIENT_SECRET: string;
   DISCORD_BOT_TOKEN: string;
   DISCORD_GUILD_ID: string;
-  DISCORD_CHANNEL_IDS: string;
   ADMIN_DISCORD_USER_IDS: string;
   SESSION_SECRET: string;
   BROWSER_DAILY_LIMIT_MS?: string;
@@ -28,18 +27,12 @@ export interface DiscordUser {
   avatar?: string | null;
 }
 
-export interface DiscordEmbed {
-  url?: string;
-  title?: string;
-}
-
 export interface DiscordMessage {
   id: string;
   channel_id: string;
   content: string;
   timestamp: string;
   author: DiscordUser;
-  embeds?: DiscordEmbed[];
 }
 
 export interface DiscordChannel {

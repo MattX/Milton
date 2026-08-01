@@ -1,5 +1,5 @@
 import { beginDiscordLogin, finishDiscordLogin, getSession, logoutResponse } from "./auth";
-import { getAdminStatus, listOccurrences, searchArticles, setBackfillEnabled } from "./database";
+import { getAdminStatus, searchArticles, setBackfillEnabled } from "./database";
 import { runScheduledIngestion } from "./discord";
 import { consumeExtractionQueue } from "./extraction";
 import { errorResponse, json, methodNotAllowed } from "./http";
@@ -43,15 +43,6 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return wrongMethod(request, "GET") ?? json(await searchArticles(
       env.DB,
       url.searchParams.get("q") || "",
-      url.searchParams.get("cursor"),
-    ));
-  }
-
-  const occurrences = path.match(/^\/api\/articles\/(\d+)\/occurrences$/);
-  if (occurrences) {
-    return wrongMethod(request, "GET") ?? json(await listOccurrences(
-      env.DB,
-      Number(occurrences[1]),
       url.searchParams.get("cursor"),
     ));
   }

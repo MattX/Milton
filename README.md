@@ -1,6 +1,6 @@
 # Milton
 
-Milton is a private full-text search engine for links shared in Discord. It polls selected channels, extracts readable article text with Cloudflare Browser Run, indexes it in D1/SQLite FTS5, and links every result to both the original page and Discord discussion.
+Milton is a private full-text search engine for links shared in Discord. It discovers readable channels, extracts readable article text with Cloudflare Browser Run, indexes it in D1/SQLite FTS5, and links every result to both the original page and Discord discussion.
 
 The application is a TypeScript Cloudflare Worker with a React/Vite UI.
 
@@ -12,7 +12,7 @@ The application is a TypeScript Cloudflare Worker with a React/Vite UI.
 - New links take priority. Historical backfill pauses at the configured free-tier browser-time and backlog thresholds.
 - Discord OAuth grants an eight-hour signed session only after `guilds.members.read` confirms membership in the configured server.
 
-Reader mode is intentionally omitted. Failed extractions remain searchable by title/URL and retain their Discord backlinks.
+Reader mode is intentionally omitted. Failed extractions remain searchable by their fallback title and domain and retain their Discord backlinks.
 
 ## Local development
 
@@ -48,7 +48,6 @@ Copy the returned D1 database ID into `wrangler.jsonc`. Then configure the non-s
 
 - `DISCORD_APPLICATION_ID`
 - `DISCORD_GUILD_ID`
-- `DISCORD_CHANNEL_IDS`, as comma-separated IDs
 - `ADMIN_DISCORD_USER_IDS`, as comma-separated IDs
 
 Install secrets without putting them in the repository:
@@ -73,7 +72,7 @@ npm run deploy
 Create one application in the Discord Developer Portal:
 
 1. Create its bot and enable the Message Content privileged intent.
-2. Install it in the target server with only `View Channel` and `Read Message History` for channels Milton should index.
+2. Install it in the target server with `View Channel` and `Read Message History` only where Milton should index links. Channel discovery follows those permissions.
 3. Add `https://YOUR_HOST/auth/callback` as an OAuth2 redirect URL.
 4. Keep the bot token and OAuth client secret only in Wrangler secrets.
 
@@ -98,6 +97,6 @@ Workers Paid expands the same D1 database from 500 MB to 10 GB and raises Browse
 - A Discord cursor advances only after its messages have been stored.
 - Extraction failures retry three times and then become link-only results.
 - Queue messages are only a wake-up nudge; `extraction_jobs.next_attempt_at` is the real schedule, so quota deferrals never consume a delivery attempt.
-- Active public threads are discovered continuously and backfilled like any other channel. Archived threads are not indexed.
+- Text and announcement channels are discovered continuously. Active public threads are indexed like channels; archived threads retain their existing search results but are no longer polled.
 - Each run polls a bounded number of channels, oldest-polled first, to stay inside the Workers Free subrequest budget.
 - Removing someone from Discord revokes access when their current session expires, within at most eight hours.

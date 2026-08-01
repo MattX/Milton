@@ -1,8 +1,5 @@
 import type { Env } from "./types";
 
-/** Historical extraction stops once this many backfill jobs are waiting. */
-export const MAX_BACKFILL_BACKLOG = 100;
-
 export interface RuntimeLimits {
   browserDailyLimitMs: number;
   backfillDailyBudgetMs: number;
