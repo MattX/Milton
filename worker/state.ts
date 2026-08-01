@@ -1,7 +1,7 @@
 export const BACKFILL_ENABLED = "backfill_enabled";
 export const BROWSER_NEXT_SLOT = "browser_next_allowed_at";
 
-export async function getState(db: D1Database, key: string): Promise<string | null> {
+async function getState(db: D1Database, key: string): Promise<string | null> {
   const row = await db.prepare("SELECT value FROM system_state WHERE key = ?")
     .bind(key).first<{ value: string }>();
   return row?.value ?? null;

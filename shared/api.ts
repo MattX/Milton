@@ -21,8 +21,6 @@ export interface ArticleResult {
   domain: string;
   excerpt: string;
   extractionStatus: "pending" | "indexed" | "failed";
-  firstPostedAt: string;
-  lastPostedAt: string;
   occurrenceCount: number;
   latestOccurrence: OccurrenceResult;
 }

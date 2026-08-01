@@ -25,56 +25,54 @@ export default {
 
 async function routeRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  const path = url.pathname;
 
-  if (url.pathname === "/auth/discord") {
-    if (request.method !== "GET") return methodNotAllowed("GET");
-    return beginDiscordLogin(request, env);
-  }
-  if (url.pathname === "/auth/callback") {
-    if (request.method !== "GET") return methodNotAllowed("GET");
-    return finishDiscordLogin(request, env);
-  }
-  if (url.pathname === "/auth/logout") {
-    if (request.method !== "POST") return methodNotAllowed("POST");
-    return logoutResponse(request);
-  }
-  if (url.pathname === "/api/health") {
-    return json({ ok: true });
-  }
+  if (path === "/auth/discord") return wrongMethod(request, "GET") ?? beginDiscordLogin(request, env);
+  if (path === "/auth/callback") return wrongMethod(request, "GET") ?? finishDiscordLogin(request, env);
+  if (path === "/auth/logout") return wrongMethod(request, "POST") ?? logoutResponse(request);
+  if (path === "/api/health") return json({ ok: true });
 
   const user = await getSession(request, env);
-  if (url.pathname === "/api/session") {
-    if (request.method !== "GET") return methodNotAllowed("GET");
-    return json(user ? { authenticated: true, user } : { authenticated: false });
+  if (path === "/api/session") {
+    return wrongMethod(request, "GET")
+      ?? json(user ? { authenticated: true, user } : { authenticated: false });
   }
   if (!user) return json({ error: "unauthorized" }, { status: 401 });
 
-  if (url.pathname === "/api/search") {
-    if (request.method !== "GET") return methodNotAllowed("GET");
-    const query = url.searchParams.get("q") || "";
-    const cursor = url.searchParams.get("cursor");
-    return json(await searchArticles(env.DB, query, cursor));
+  if (path === "/api/search") {
+    return wrongMethod(request, "GET") ?? json(await searchArticles(
+      env.DB,
+      url.searchParams.get("q") || "",
+      url.searchParams.get("cursor"),
+    ));
   }
 
-  const occurrencesMatch = url.pathname.match(/^\/api\/articles\/(\d+)\/occurrences$/);
-  if (occurrencesMatch) {
-    if (request.method !== "GET") return methodNotAllowed("GET");
-    const articleId = Number(occurrencesMatch[1]);
-    return json(await listOccurrences(env.DB, articleId, url.searchParams.get("cursor")));
+  const occurrences = path.match(/^\/api\/articles\/(\d+)\/occurrences$/);
+  if (occurrences) {
+    return wrongMethod(request, "GET") ?? json(await listOccurrences(
+      env.DB,
+      Number(occurrences[1]),
+      url.searchParams.get("cursor"),
+    ));
   }
 
-  if (url.pathname === "/api/admin/status") {
-    if (request.method !== "GET") return methodNotAllowed("GET");
+  if (path.startsWith("/api/admin/")) {
     if (!user.isAdmin) return json({ error: "forbidden" }, { status: 403 });
-    return json(await getAdminStatus(env));
-  }
-
-  if (url.pathname === "/api/admin/backfill") {
-    if (request.method !== "POST") return methodNotAllowed("POST");
-    if (!user.isAdmin) return json({ error: "forbidden" }, { status: 403 });
-    await setBackfillEnabled(env.DB, true);
-    return json({ enabled: true }, { status: 202 });
+    if (path === "/api/admin/status") {
+      return wrongMethod(request, "GET") ?? json(await getAdminStatus(env));
+    }
+    if (path === "/api/admin/backfill") {
+      const rejected = wrongMethod(request, "POST");
+      if (rejected) return rejected;
+      await setBackfillEnabled(env.DB, true);
+      return json({ enabled: true }, { status: 202 });
+    }
   }
 
   return json({ error: "not_found" }, { status: 404 });
+}
+
+/** Null when the method is allowed, so handlers read as `?? handle(...)`. */
+function wrongMethod(request: Request, allowed: string): Response | null {
+  return request.method === allowed ? null : methodNotAllowed(allowed);
 }

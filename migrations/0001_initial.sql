@@ -3,14 +3,12 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE articles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   normalized_url TEXT NOT NULL UNIQUE,
-  original_url TEXT NOT NULL,
   domain TEXT NOT NULL,
   title TEXT NOT NULL DEFAULT '',
   body TEXT NOT NULL DEFAULT '',
   excerpt TEXT NOT NULL DEFAULT '',
   extraction_status TEXT NOT NULL DEFAULT 'pending'
     CHECK (extraction_status IN ('pending', 'indexed', 'failed')),
-  extraction_error TEXT,
   first_posted_at TEXT NOT NULL,
   last_posted_at TEXT NOT NULL,
   created_at TEXT NOT NULL,
@@ -20,11 +18,9 @@ CREATE TABLE articles (
 CREATE TABLE occurrences (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
-  guild_id TEXT NOT NULL,
   channel_id TEXT NOT NULL,
   channel_name TEXT NOT NULL,
   message_id TEXT NOT NULL,
-  author_id TEXT NOT NULL,
   author_name TEXT NOT NULL,
   posted_at TEXT NOT NULL,
   message_url TEXT NOT NULL,
@@ -33,8 +29,6 @@ CREATE TABLE occurrences (
 
 CREATE INDEX occurrences_article_posted
   ON occurrences(article_id, posted_at DESC);
-CREATE INDEX occurrences_channel_message
-  ON occurrences(channel_id, message_id);
 
 CREATE TABLE channel_cursors (
   channel_id TEXT PRIMARY KEY,

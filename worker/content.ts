@@ -12,17 +12,14 @@ export function markdownToPlainText(markdown: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  const encoder = new TextEncoder();
-  if (encoder.encode(text).byteLength <= MAX_BODY_BYTES) return text;
-
-  let low = 0;
-  let high = text.length;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if (encoder.encode(text.slice(0, middle)).byteLength <= MAX_BODY_BYTES) low = middle;
-    else high = middle - 1;
-  }
-  return text.slice(0, low).trimEnd();
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.byteLength <= MAX_BODY_BYTES) return text;
+  // Truncating mid-character leaves an invalid sequence; a non-fatal decoder
+  // turns that tail into U+FFFD, which the trailing-junk strip then removes.
+  return new TextDecoder()
+    .decode(bytes.slice(0, MAX_BODY_BYTES))
+    .replace(/�+$/, "")
+    .trimEnd();
 }
 
 export function makeExcerpt(text: string, length = 320): string {

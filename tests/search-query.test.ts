@@ -10,8 +10,11 @@ describe("search query handling", () => {
     expect(toFtsQuery("---")).toBeNull();
   });
 
-  it("round-trips pagination offsets and rejects invalid cursors", () => {
+  it("round-trips pagination offsets and rejects out-of-range cursors", () => {
     expect(decodeCursor(encodeCursor(40))).toBe(40);
     expect(decodeCursor("not-a-valid-cursor!")).toBe(0);
+    expect(decodeCursor("-20")).toBe(0);
+    expect(decodeCursor("999999999")).toBe(0);
+    expect(decodeCursor(null)).toBe(0);
   });
 });

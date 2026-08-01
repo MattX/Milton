@@ -300,17 +300,21 @@ function statusLabel(status: ArticleResult["extractionStatus"]): string {
   return "Link only";
 }
 
+const RELATIVE_UNITS: Array<[Intl.RelativeTimeFormatUnit, number, number]> = [
+  ["second", 1, 60],
+  ["minute", 60, 60],
+  ["hour", 3600, 24],
+  ["day", 86_400, 30],
+];
+
 function relativeDate(value: string): string {
-  const timestamp = new Date(value).getTime();
-  const seconds = Math.round((timestamp - Date.now()) / 1000);
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-  if (Math.abs(seconds) < 60) return formatter.format(seconds, "second");
-  const minutes = Math.round(seconds / 60);
-  if (Math.abs(minutes) < 60) return formatter.format(minutes, "minute");
-  const hours = Math.round(minutes / 60);
-  if (Math.abs(hours) < 24) return formatter.format(hours, "hour");
-  const days = Math.round(hours / 24);
-  if (Math.abs(days) < 30) return formatter.format(days, "day");
+  const seconds = (new Date(value).getTime() - Date.now()) / 1000;
+  for (const [unit, size, limit] of RELATIVE_UNITS) {
+    const amount = Math.round(seconds / size);
+    if (Math.abs(amount) < limit) {
+      return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(amount, unit);
+    }
+  }
   return new Date(value).toLocaleDateString();
 }
 

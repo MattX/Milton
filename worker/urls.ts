@@ -34,7 +34,6 @@ const URL_PATTERN = /https?:\/\/[^\s<>]+/giu;
 const TRAILING_PUNCTUATION = new Set([")", ",", ".", "!", "?", ";", ":", "'", '"', "]", "}"]);
 
 export interface NormalizedLink {
-  originalUrl: string;
   normalizedUrl: string;
   domain: string;
 }
@@ -44,7 +43,7 @@ export interface NormalizedLink {
  * dropped -- except a ")" that closes a "(" belonging to the URL itself, as in
  * https://en.wikipedia.org/wiki/Foo_(bar).
  */
-export function trimUrlPunctuation(raw: string): string {
+function trimUrlPunctuation(raw: string): string {
   let url = raw;
   while (url.length) {
     const last = url.at(-1)!;
@@ -88,11 +87,7 @@ export function normalizeUrl(raw: string): NormalizedLink | null {
     url.port = "";
   }
 
-  return {
-    originalUrl: cleaned,
-    normalizedUrl: url.toString(),
-    domain: hostname,
-  };
+  return { normalizedUrl: url.toString(), domain: hostname };
 }
 
 export function extractLinks(content: string): NormalizedLink[] {

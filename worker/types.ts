@@ -31,7 +31,6 @@ export interface DiscordUser {
 export interface DiscordEmbed {
   url?: string;
   title?: string;
-  provider?: { name?: string };
 }
 
 export interface DiscordMessage {
@@ -49,12 +48,8 @@ export interface DiscordChannel {
   parent_id?: string | null;
   name?: string;
   type: number;
-  thread_metadata?: {
-    archive_timestamp?: string;
-  };
 }
 
 export interface DiscordThreadList {
   threads: DiscordChannel[];
-  has_more?: boolean;
 }

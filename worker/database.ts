@@ -19,8 +19,6 @@ interface ArticleRow {
   title: string;
   excerpt: string;
   extraction_status: "pending" | "indexed" | "failed";
-  first_posted_at: string;
-  last_posted_at: string;
   occurrence_count: number;
 }
 
@@ -40,16 +38,9 @@ export async function persistDiscordMessages(
   priority: 0 | 10,
 ): Promise<void> {
   const now = new Date().toISOString();
-  const linkRecords: Array<{
-    normalizedUrl: string;
-    originalUrl: string;
-    domain: string;
-    title: string;
-    message: DiscordMessage;
-  }> = [];
+  const linkRecords: Array<{ normalizedUrl: string; message: DiscordMessage }> = [];
   const articles = new Map<string, {
     normalizedUrl: string;
-    originalUrl: string;
     domain: string;
     title: string;
     firstPostedAt: string;
@@ -57,30 +48,16 @@ export async function persistDiscordMessages(
   }>();
 
   for (const message of messages) {
-    const links = extractLinks(message.content);
-    for (const link of links) {
-      const embedTitle = message.embeds?.find((embed) => {
-        if (!embed.url) return false;
-        try {
-          return new URL(embed.url).hostname === link.domain;
-        } catch {
-          return false;
-        }
-      })?.title;
-      const title = (embedTitle || fallbackTitle(link.normalizedUrl)).slice(0, 300);
-      linkRecords.push({ ...link, title, message });
+    for (const link of extractLinks(message.content)) {
+      linkRecords.push({ normalizedUrl: link.normalizedUrl, message });
       const existing = articles.get(link.normalizedUrl);
       articles.set(link.normalizedUrl, {
         normalizedUrl: link.normalizedUrl,
-        originalUrl: link.originalUrl,
         domain: link.domain,
-        title: existing?.title || title,
-        firstPostedAt: existing && existing.firstPostedAt < message.timestamp
-          ? existing.firstPostedAt
-          : message.timestamp,
-        lastPostedAt: existing && existing.lastPostedAt > message.timestamp
-          ? existing.lastPostedAt
-          : message.timestamp,
+        title: existing?.title || embedTitleFor(message, link.domain)
+          || fallbackTitle(link.normalizedUrl).slice(0, 300),
+        firstPostedAt: minString(existing?.firstPostedAt, message.timestamp),
+        lastPostedAt: maxString(existing?.lastPostedAt, message.timestamp),
       });
     }
   }
@@ -89,11 +66,10 @@ export async function persistDiscordMessages(
 
   await runBatched(env.DB, [...articles.values()].map((article) => env.DB.prepare(
     `INSERT INTO articles (
-       normalized_url, original_url, domain, title,
+       normalized_url, domain, title,
        first_posted_at, last_posted_at, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(normalized_url) DO UPDATE SET
-       original_url = excluded.original_url,
        -- Extraction owns the title once it succeeds. Until then take the newest
        -- one seen, so an embed title can still replace a URL-derived guess.
        title = CASE WHEN articles.extraction_status = 'indexed'
@@ -103,7 +79,6 @@ export async function persistDiscordMessages(
        updated_at = excluded.updated_at`,
   ).bind(
     article.normalizedUrl,
-    article.originalUrl,
     article.domain,
     article.title,
     article.firstPostedAt,
@@ -124,26 +99,22 @@ export async function persistDiscordMessages(
     }
   }
 
+  // extractLinks dedupes within a message, so (article, message) pairs are already
+  // unique here; INSERT OR IGNORE covers messages we have seen on an earlier run.
   const occurrences: D1PreparedStatement[] = [];
-  const seen = new Set<string>();
   for (const record of linkRecords) {
     const article = storedArticles.get(record.normalizedUrl);
     if (!article) throw new Error(`Could not find stored article ${record.normalizedUrl}`);
-    const key = `${article.id}:${record.message.id}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
     occurrences.push(env.DB.prepare(
       `INSERT OR IGNORE INTO occurrences (
-         article_id, guild_id, channel_id, channel_name, message_id,
-         author_id, author_name, posted_at, message_url
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         article_id, channel_id, channel_name, message_id,
+         author_name, posted_at, message_url
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       article.id,
-      env.DISCORD_GUILD_ID,
       record.message.channel_id,
       channelName,
       record.message.id,
-      record.message.author.id,
       record.message.author.global_name || record.message.author.username,
       record.message.timestamp,
       `https://discord.com/channels/${env.DISCORD_GUILD_ID}/${record.message.channel_id}/${record.message.id}`,
@@ -168,62 +139,40 @@ export async function searchArticles(
   query: string,
   cursor: string | null,
 ): Promise<SearchResponse> {
-  const offset = decodeCursor(cursor);
   const ftsQuery = toFtsQuery(query);
-  let rows: ArticleRow[];
+  const page = await paginate<ArticleRow>(cursor, (limit, offset) => db.prepare(
+    `SELECT
+       a.id, a.normalized_url, a.domain, a.title, a.excerpt, a.extraction_status,
+       (SELECT count(*) FROM occurrences o WHERE o.article_id = a.id) occurrence_count
+     ${ftsQuery
+       ? `FROM articles_fts JOIN articles a ON a.id = articles_fts.rowid
+          WHERE articles_fts MATCH ?
+          ORDER BY bm25(articles_fts, 7.0, 2.0, 1.0), a.last_posted_at DESC`
+       : `FROM articles a
+          ORDER BY a.last_posted_at DESC, a.id DESC`}
+     LIMIT ? OFFSET ?`,
+  ).bind(...(ftsQuery ? [ftsQuery] : []), limit, offset));
 
-  if (ftsQuery) {
-    const result = await db.prepare(
-      `SELECT
-        a.id, a.normalized_url, a.domain, a.title, a.excerpt,
-        a.extraction_status, a.first_posted_at, a.last_posted_at,
-        (SELECT count(*) FROM occurrences o WHERE o.article_id = a.id) AS occurrence_count
-      FROM articles_fts
-      JOIN articles a ON a.id = articles_fts.rowid
-      WHERE articles_fts MATCH ?
-      ORDER BY bm25(articles_fts, 7.0, 2.0, 1.0), a.last_posted_at DESC
-      LIMIT ? OFFSET ?`,
-    ).bind(ftsQuery, PAGE_SIZE + 1, offset).all<ArticleRow>();
-    rows = result.results;
-  } else {
-    const result = await db.prepare(
-      `SELECT
-        a.id, a.normalized_url, a.domain, a.title, a.excerpt,
-        a.extraction_status, a.first_posted_at, a.last_posted_at,
-        (SELECT count(*) FROM occurrences o WHERE o.article_id = a.id) AS occurrence_count
-      FROM articles a
-      ORDER BY a.last_posted_at DESC, a.id DESC
-      LIMIT ? OFFSET ?`,
-    ).bind(PAGE_SIZE + 1, offset).all<ArticleRow>();
-    rows = result.results;
-  }
-
-  const hasMore = rows.length > PAGE_SIZE;
-  const pageRows = rows.slice(0, PAGE_SIZE);
-  const latest = await latestOccurrences(db, pageRows.map((row) => row.id));
-  const items = pageRows.flatMap((row): ArticleResult[] => {
-    const occurrence = latest.get(row.id);
-    if (!occurrence) {
-      console.warn("Milton found an article with no occurrences", row.id, row.normalized_url);
-      return [];
-    }
-    return [{
-      id: row.id,
-      title: row.title || row.domain,
-      url: row.normalized_url,
-      domain: row.domain,
-      excerpt: row.excerpt,
-      extractionStatus: row.extraction_status,
-      firstPostedAt: row.first_posted_at,
-      lastPostedAt: row.last_posted_at,
-      occurrenceCount: row.occurrence_count,
-      latestOccurrence: mapOccurrence(occurrence),
-    }];
-  });
-
+  const latest = await latestOccurrences(db, page.items.map((row) => row.id));
   return {
-    items,
-    nextCursor: hasMore ? encodeCursor(offset + PAGE_SIZE) : null,
+    nextCursor: page.nextCursor,
+    items: page.items.flatMap((row): ArticleResult[] => {
+      const occurrence = latest.get(row.id);
+      if (!occurrence) {
+        console.warn("Milton found an article with no occurrences", row.id, row.normalized_url);
+        return [];
+      }
+      return [{
+        id: row.id,
+        title: row.title || row.domain,
+        url: row.normalized_url,
+        domain: row.domain,
+        excerpt: row.excerpt,
+        extractionStatus: row.extraction_status,
+        occurrenceCount: row.occurrence_count,
+        latestOccurrence: mapOccurrence(occurrence),
+      }];
+    }),
   };
 }
 
@@ -232,18 +181,27 @@ export async function listOccurrences(
   articleId: number,
   cursor: string | null,
 ): Promise<{ items: OccurrenceResult[]; nextCursor: string | null }> {
-  const offset = decodeCursor(cursor);
-  const result = await db.prepare(
+  const page = await paginate<OccurrenceRow>(cursor, (limit, offset) => db.prepare(
     `SELECT id, article_id, channel_name, author_name, posted_at, message_url
      FROM occurrences
      WHERE article_id = ?
      ORDER BY posted_at DESC, id DESC
      LIMIT ? OFFSET ?`,
-  ).bind(articleId, PAGE_SIZE + 1, offset).all<OccurrenceRow>();
-  const hasMore = result.results.length > PAGE_SIZE;
+  ).bind(articleId, limit, offset));
+
+  return { items: page.items.map(mapOccurrence), nextCursor: page.nextCursor };
+}
+
+/** Offset paging: fetch one extra row to learn whether another page exists. */
+async function paginate<T>(
+  cursor: string | null,
+  build: (limit: number, offset: number) => D1PreparedStatement,
+): Promise<{ items: T[]; nextCursor: string | null }> {
+  const offset = decodeCursor(cursor);
+  const { results } = await build(PAGE_SIZE + 1, offset).all<T>();
   return {
-    items: result.results.slice(0, PAGE_SIZE).map(mapOccurrence),
-    nextCursor: hasMore ? encodeCursor(offset + PAGE_SIZE) : null,
+    items: results.slice(0, PAGE_SIZE),
+    nextCursor: results.length > PAGE_SIZE ? encodeCursor(offset + PAGE_SIZE) : null,
   };
 }
 
@@ -347,6 +305,27 @@ async function latestOccurrences(
   ).bind(...articleIds).all<OccurrenceRow>();
   for (const row of result.results) output.set(row.article_id, row);
   return output;
+}
+
+/** Discord unfurls links into embeds; its title beats one guessed from the path. */
+function embedTitleFor(message: DiscordMessage, domain: string): string | undefined {
+  const embed = message.embeds?.find((candidate) => {
+    if (!candidate.url) return false;
+    try {
+      return new URL(candidate.url).hostname === domain;
+    } catch {
+      return false;
+    }
+  });
+  return embed?.title?.slice(0, 300);
+}
+
+function minString(left: string | undefined, right: string): string {
+  return left !== undefined && left < right ? left : right;
+}
+
+function maxString(left: string | undefined, right: string): string {
+  return left !== undefined && left > right ? left : right;
 }
 
 function mapOccurrence(row: OccurrenceRow): OccurrenceResult {

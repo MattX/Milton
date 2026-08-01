@@ -7,10 +7,10 @@ describe("D1 schema", () => {
     const schema = readFileSync("migrations/0001_initial.sql", "utf8");
     const sql = `${schema}\n
       INSERT INTO articles (
-        normalized_url, original_url, domain, title, body, excerpt,
+        normalized_url, domain, title, body, excerpt,
         extraction_status, first_posted_at, last_posted_at, created_at, updated_at
       ) VALUES (
-        'https://example.com/', 'https://example.com/', 'example.com',
+        'https://example.com/', 'example.com',
         'Distributed systems', 'A searchable article body', '', 'indexed',
         datetime('now'), datetime('now'), datetime('now'), datetime('now')
       );

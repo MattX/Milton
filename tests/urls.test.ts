@@ -8,7 +8,6 @@ describe("URL ingestion", () => {
       "and again https://example.com/story?id=4).",
     );
     expect(links).toEqual([{
-      originalUrl: "https://example.com/story?id=4",
       normalizedUrl: "https://example.com/story?id=4",
       domain: "example.com",
     }]);
