@@ -219,7 +219,6 @@ function AdminPanel() {
       {status && (
         <>
           <div className="metric-grid">
-            <Metric label="D1 storage" value={`${formatBytes(status.databaseBytes)} / ${formatBytes(status.databaseLimitBytes)}`} warning={status.databaseWarning} />
             <Metric label="Browser today" value={`${formatDuration(status.browserMillisecondsToday)} / ${formatDuration(status.browserDailyLimitMilliseconds)}`} />
             <Metric label="Live jobs" value={String(status.pendingLiveJobs)} />
             <Metric label="Historical jobs" value={String(status.pendingBackfillJobs)} />
@@ -291,11 +290,6 @@ function relativeDate(value: string): string {
   const days = Math.round(hours / 24);
   if (Math.abs(days) < 30) return formatter.format(days, "day");
   return new Date(value).toLocaleDateString();
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1_000_000) return `${Math.round(bytes / 1_000)} KB`;
-  return `${(bytes / 1_000_000).toFixed(1)} MB`;
 }
 
 function formatDuration(milliseconds: number): string {

@@ -33,9 +33,6 @@ export interface SearchResponse {
 }
 
 export interface AdminStatus {
-  databaseBytes: number;
-  databaseLimitBytes: number;
-  databaseWarning: boolean;
   browserMillisecondsToday: number;
   browserDailyLimitMilliseconds: number;
   backfillEnabled: boolean;

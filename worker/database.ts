@@ -5,7 +5,8 @@ import type {
   SearchResponse,
 } from "../shared/api";
 import { decodeCursor, encodeCursor, toFtsQuery } from "./search-query";
-import { FREE_DATABASE_LIMIT_BYTES, runtimeLimits } from "./limits";
+import { MAX_BACKFILL_BACKLOG, runtimeLimits, type RuntimeLimits } from "./limits";
+import { BACKFILL_ENABLED, getState, setState } from "./state";
 import type { DiscordMessage, Env } from "./types";
 import { extractLinks, fallbackTitle } from "./urls";
 
@@ -247,60 +248,90 @@ export async function listOccurrences(
   };
 }
 
+/** The inputs that decide whether historical backfill may run right now. */
+export interface BackfillGate {
+  enabled: boolean;
+  browserMillisecondsToday: number;
+  pendingBackfillJobs: number;
+}
+
+export function utcDay(at: Date = new Date()): string {
+  return at.toISOString().slice(0, 10);
+}
+
+export async function browserUsageToday(db: D1Database): Promise<number> {
+  const row = await db.prepare("SELECT milliseconds FROM browser_usage WHERE usage_date = ?")
+    .bind(utcDay()).first<{ milliseconds: number }>();
+  return row?.milliseconds ?? 0;
+}
+
+/**
+ * One round trip, so the scheduled handler can cheaply ask "may I backfill?"
+ * without assembling the whole admin payload.
+ */
+export async function loadBackfillGate(db: D1Database): Promise<BackfillGate> {
+  const row = await db.prepare(
+    `SELECT
+      (SELECT value FROM system_state WHERE key = ?) enabled,
+      (SELECT milliseconds FROM browser_usage WHERE usage_date = ?) browser_ms,
+      (SELECT count(*) FROM extraction_jobs
+        WHERE status IN ('pending', 'enqueued', 'processing') AND priority > 0) pending_backfill`,
+  ).bind(BACKFILL_ENABLED, utcDay())
+    .first<{ enabled: string | null; browser_ms: number | null; pending_backfill: number }>();
+
+  return {
+    enabled: row?.enabled === "1",
+    browserMillisecondsToday: row?.browser_ms ?? 0,
+    pendingBackfillJobs: row?.pending_backfill ?? 0,
+  };
+}
+
+export function backfillPausedReason(gate: BackfillGate, limits: RuntimeLimits): string | null {
+  if (!gate.enabled) return "Backfill has not been started.";
+  if (gate.browserMillisecondsToday >= limits.backfillDailyBudgetMs) {
+    return "The historical Browser Run budget is exhausted for today.";
+  }
+  if (gate.pendingBackfillJobs >= MAX_BACKFILL_BACKLOG) {
+    return `The historical extraction backlog has reached ${MAX_BACKFILL_BACKLOG} articles.`;
+  }
+  return null;
+}
+
 export async function getAdminStatus(env: Env): Promise<AdminStatus> {
   const limits = runtimeLimits(env);
-  const today = new Date().toISOString().slice(0, 10);
-  const [pageCount, pageSize, usage, state, jobs, channels] = await Promise.all([
-    env.DB.prepare("PRAGMA page_count").first<Record<string, number>>(),
-    env.DB.prepare("PRAGMA page_size").first<Record<string, number>>(),
-    env.DB.prepare("SELECT milliseconds FROM browser_usage WHERE usage_date = ?").bind(today)
-      .first<{ milliseconds: number }>(),
-    env.DB.prepare("SELECT value FROM system_state WHERE key = 'backfill_enabled'")
-      .first<{ value: string }>(),
+  const [gate, jobs, channels] = await Promise.all([
+    loadBackfillGate(env.DB),
     env.DB.prepare(
       `SELECT
         sum(CASE WHEN status IN ('pending', 'enqueued', 'processing') AND priority = 0 THEN 1 ELSE 0 END) pending_live,
-        sum(CASE WHEN status IN ('pending', 'enqueued', 'processing') AND priority > 0 THEN 1 ELSE 0 END) pending_backfill,
         sum(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) failed
        FROM extraction_jobs`,
-    ).first<{ pending_live: number | null; pending_backfill: number | null; failed: number | null }>(),
+    ).first<{ pending_live: number | null; failed: number | null }>(),
     env.DB.prepare(
       `SELECT count(*) total, sum(CASE WHEN backfill_complete = 1 THEN 1 ELSE 0 END) complete
        FROM channel_cursors`,
     ).first<{ total: number; complete: number | null }>(),
   ]);
 
-  const databaseBytes = firstNumericValue(pageCount) * firstNumericValue(pageSize);
-  const backfillEnabled = state?.value === "1";
-  const pendingBackfill = jobs?.pending_backfill ?? 0;
-  const browserMs = usage?.milliseconds ?? 0;
-  let pausedReason: string | null = null;
-  if (!backfillEnabled) pausedReason = "Backfill has not been started.";
-  else if (databaseBytes >= limits.databaseWarningBytes) pausedReason = "D1 has reached its configured safety threshold.";
-  else if (browserMs >= limits.backfillDailyBudgetMs) pausedReason = "The historical Browser Run budget is exhausted for today.";
-  else if (pendingBackfill >= 100) pausedReason = "The historical extraction backlog has reached 100 articles.";
-
   return {
-    databaseBytes,
-    databaseLimitBytes: FREE_DATABASE_LIMIT_BYTES,
-    databaseWarning: databaseBytes >= limits.databaseWarningBytes,
-    browserMillisecondsToday: browserMs,
+    browserMillisecondsToday: gate.browserMillisecondsToday,
     browserDailyLimitMilliseconds: limits.browserDailyLimitMs,
-    backfillEnabled,
-    backfillPausedReason: pausedReason,
+    backfillEnabled: gate.enabled,
+    backfillPausedReason: backfillPausedReason(gate, limits),
     pendingLiveJobs: jobs?.pending_live ?? 0,
-    pendingBackfillJobs: pendingBackfill,
+    pendingBackfillJobs: gate.pendingBackfillJobs,
     failedJobs: jobs?.failed ?? 0,
     channelsComplete: channels?.complete ?? 0,
     channelsTotal: channels?.total ?? 0,
   };
 }
 
-export async function setBackfillEnabled(db: D1Database, enabled: boolean): Promise<void> {
-  await db.prepare(
-    `INSERT INTO system_state(key, value, updated_at) VALUES ('backfill_enabled', ?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-  ).bind(enabled ? "1" : "0", new Date().toISOString()).run();
+export function setBackfillEnabled(db: D1Database, enabled: boolean): Promise<void> {
+  return setState(db, BACKFILL_ENABLED, enabled ? "1" : "0");
+}
+
+export async function isBackfillEnabled(db: D1Database): Promise<boolean> {
+  return await getState(db, BACKFILL_ENABLED) === "1";
 }
 
 async function latestOccurrences(
@@ -330,10 +361,6 @@ function mapOccurrence(row: OccurrenceRow): OccurrenceResult {
     postedAt: row.posted_at,
     messageUrl: row.message_url,
   };
-}
-
-function firstNumericValue(row: Record<string, number> | null): number {
-  return row ? Number(Object.values(row)[0] ?? 0) : 0;
 }
 
 function chunks<T>(values: T[], size: number): T[][] {

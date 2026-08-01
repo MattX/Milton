@@ -15,7 +15,6 @@ export interface Env {
   SESSION_SECRET: string;
   BROWSER_DAILY_LIMIT_MS?: string;
   BACKFILL_DAILY_BUDGET_MS?: string;
-  DATABASE_WARNING_BYTES?: string;
 }
 
 export interface ExtractionMessage {
