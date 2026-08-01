@@ -1,5 +1,0 @@
-build/
-.gradle/
-.idea/
-src/main/resources/secrets.conf
-src/main/webapp/ui/

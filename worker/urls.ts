@@ -1,0 +1,94 @@
+const TRACKING_PARAMETERS = new Set([
+  "fbclid",
+  "gclid",
+  "dclid",
+  "msclkid",
+  "mc_cid",
+  "mc_eid",
+  "igshid",
+  "ref_src",
+]);
+
+const DISCORD_HOSTS = new Set([
+  "discord.com",
+  "www.discord.com",
+  "discord.gg",
+  "discordapp.com",
+  "cdn.discordapp.com",
+  "media.discordapp.net",
+]);
+
+const PRIVATE_HOST_PATTERNS = [
+  /^localhost$/i,
+  /^127\./,
+  /^10\./,
+  /^169\.254\./,
+  /^192\.168\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^\[?::1\]?$/,
+  /^\[?f[cd][0-9a-f]{2}:/i,
+  /^\[?fe80:/i,
+];
+
+const URL_PATTERN = /https?:\/\/[^\s<>]+/giu;
+const TRAILING_PUNCTUATION = /[),.!?;:'"\]}]+$/u;
+
+export interface NormalizedLink {
+  originalUrl: string;
+  normalizedUrl: string;
+  domain: string;
+}
+
+export function normalizeUrl(raw: string): NormalizedLink | null {
+  const cleaned = raw.replace(TRAILING_PUNCTUATION, "");
+  let url: URL;
+  try {
+    url = new URL(cleaned);
+  } catch {
+    return null;
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  if (url.username || url.password) return null;
+
+  const hostname = url.hostname.toLowerCase();
+  if (DISCORD_HOSTS.has(hostname)) return null;
+  if (PRIVATE_HOST_PATTERNS.some((pattern) => pattern.test(hostname))) return null;
+
+  url.hash = "";
+  for (const key of [...url.searchParams.keys()]) {
+    if (key.toLowerCase().startsWith("utm_") || TRACKING_PARAMETERS.has(key.toLowerCase())) {
+      url.searchParams.delete(key);
+    }
+  }
+
+  if ((url.protocol === "https:" && url.port === "443") || (url.protocol === "http:" && url.port === "80")) {
+    url.port = "";
+  }
+
+  return {
+    originalUrl: cleaned,
+    normalizedUrl: url.toString(),
+    domain: hostname,
+  };
+}
+
+export function extractLinks(content: string): NormalizedLink[] {
+  const links = new Map<string, NormalizedLink>();
+  for (const match of content.matchAll(URL_PATTERN)) {
+    const link = normalizeUrl(match[0]);
+    if (link) links.set(link.normalizedUrl, link);
+  }
+  return [...links.values()];
+}
+
+export function fallbackTitle(url: string): string {
+  const parsed = new URL(url);
+  const lastSegment = parsed.pathname.split("/").filter(Boolean).at(-1);
+  if (!lastSegment) return parsed.hostname;
+  try {
+    return decodeURIComponent(lastSegment).replace(/[-_]+/g, " ");
+  } catch {
+    return lastSegment.replace(/[-_]+/g, " ");
+  }
+}

@@ -1,7 +1,0 @@
-div.alerts {
-    position: fixed;
-    top: 10px;
-    left: 0;
-    width: 100%;
-    z-index: 10;
-}

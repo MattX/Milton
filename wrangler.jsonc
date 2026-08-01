@@ -1,0 +1,54 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "milton",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-07-31",
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/auth/*"]
+  },
+  "observability": {
+    "enabled": true
+  },
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "milton",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "EXTRACTION_QUEUE",
+        "queue": "milton-extraction"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "milton-extraction",
+        "dead_letter_queue": "milton-extraction-dead-letter",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "max_concurrency": 1
+      }
+    ]
+  },
+  "vars": {
+    "DISCORD_APPLICATION_ID": "",
+    "DISCORD_GUILD_ID": "",
+    "DISCORD_CHANNEL_IDS": "",
+    "ADMIN_DISCORD_USER_IDS": "",
+    "BROWSER_DAILY_LIMIT_MS": "600000",
+    "BACKFILL_DAILY_BUDGET_MS": "480000",
+    "DATABASE_WARNING_BYTES": "400000000"
+  }
+}

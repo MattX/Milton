@@ -1,0 +1,37 @@
+{
+  "name": "milton",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "WRANGLER_WRITE_LOGS=0 vite dev",
+    "build": "WRANGLER_WRITE_LOGS=0 vite build",
+    "preview": "npm run build && vite preview",
+    "deploy": "npm run build && WRANGLER_WRITE_LOGS=0 wrangler deploy",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "db:verify": "sqlite3 :memory: < migrations/0001_initial.sql",
+    "check": "npm run typecheck && npm run test && npm run db:verify && npm run build",
+    "db:migrate:local": "WRANGLER_WRITE_LOGS=0 wrangler d1 migrations apply milton --local",
+    "db:migrate:remote": "WRANGLER_WRITE_LOGS=0 wrangler d1 migrations apply milton --remote"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "@cloudflare/vite-plugin": "latest",
+    "@cloudflare/workers-types": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "typescript": "latest",
+    "vitest": "latest",
+    "wrangler": "latest"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

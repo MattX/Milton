@@ -1,0 +1,28 @@
+import { describe, expect, it } from "vitest";
+import { extractLinks, fallbackTitle, normalizeUrl } from "../worker/urls";
+
+describe("URL ingestion", () => {
+  it("extracts, normalizes, and deduplicates external links", () => {
+    const links = extractLinks(
+      "Read <https://Example.com/story?utm_source=discord&id=4#comments> " +
+      "and again https://example.com/story?id=4).",
+    );
+    expect(links).toEqual([{
+      originalUrl: "https://example.com/story?id=4",
+      normalizedUrl: "https://example.com/story?id=4",
+      domain: "example.com",
+    }]);
+  });
+
+  it("rejects Discord, credentialed, and private-network URLs", () => {
+    expect(normalizeUrl("https://discord.com/channels/1/2/3")).toBeNull();
+    expect(normalizeUrl("http://localhost/admin")).toBeNull();
+    expect(normalizeUrl("https://user:password@example.com/")).toBeNull();
+    expect(normalizeUrl("http://192.168.1.10/")).toBeNull();
+  });
+
+  it("creates a readable fallback title", () => {
+    expect(fallbackTitle("https://example.com/a/useful-article_title")).toBe("useful article title");
+    expect(fallbackTitle("https://example.com/")).toBe("example.com");
+  });
+});
