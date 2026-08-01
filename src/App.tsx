@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import type {
   AdminStatus,
   ArticleResult,
@@ -12,6 +12,11 @@ interface SessionResponse {
   user?: SessionUser;
 }
 
+interface OccurrencesResponse {
+  items: OccurrenceResult[];
+  nextCursor: string | null;
+}
+
 export default function App() {
   const [session, setSession] = useState<SessionResponse | null>(null);
   const [query, setQuery] = useState("");
@@ -20,7 +25,12 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Identifies the newest request so a slow "load more" cannot append its page
+  // onto the results of a search submitted after it.
+  const latestRequest = useRef(0);
+
   const loadResults = useCallback(async (search: string, cursor?: string, append = false) => {
+    const request = (latestRequest.current += 1);
     setLoading(true);
     setError(null);
     try {
@@ -28,13 +38,14 @@ export default function App() {
       if (search) params.set("q", search);
       if (cursor) params.set("cursor", cursor);
       const response = await api<SearchResponse>(`/api/search?${params}`);
+      if (request !== latestRequest.current) return;
       setResults((current) => append && current
         ? { items: [...current.items, ...response.items], nextCursor: response.nextCursor }
         : response);
     } catch (caught) {
-      setError(errorMessage(caught));
+      if (request === latestRequest.current) setError(errorMessage(caught));
     } finally {
-      setLoading(false);
+      if (request === latestRequest.current) setLoading(false);
     }
   }, []);
 
@@ -107,7 +118,7 @@ export default function App() {
         <section className="results-section">
           <div className="section-heading">
             <h2>{submittedQuery ? `Results for “${submittedQuery}”` : "Recently shared"}</h2>
-            {results && <span>{results.items.length}{results.nextCursor ? "+" : ""} links</span>}
+            {results && <span>Showing {results.items.length} links</span>}
           </div>
           {error && <div className="notice error">{error}</div>}
           {!results && loading && <ResultSkeletons />}
@@ -151,8 +162,19 @@ function ResultCard({ result }: { result: ArticleResult }) {
     if (!next || occurrences.length >= result.occurrenceCount) return;
     setLoading(true);
     try {
-      const response = await api<{ items: OccurrenceResult[] }>(`/api/articles/${result.id}/occurrences`);
-      setOccurrences(response.items);
+      const items: OccurrenceResult[] = [];
+      let cursor: string | null = null;
+      // The endpoint pages at 20, so follow the cursor until the list is whole.
+      do {
+        const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+        const page: OccurrencesResponse =
+          await api<OccurrencesResponse>(`/api/articles/${result.id}/occurrences${query}`);
+        items.push(...page.items);
+        cursor = page.nextCursor;
+      } while (cursor && items.length < result.occurrenceCount);
+      setOccurrences(items);
+    } catch {
+      // Keep the latest occurrence already on screen rather than emptying the card.
     } finally {
       setLoading(false);
     }

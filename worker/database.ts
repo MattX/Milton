@@ -94,7 +94,10 @@ export async function persistDiscordMessages(
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(normalized_url) DO UPDATE SET
        original_url = excluded.original_url,
-       title = CASE WHEN articles.title = '' THEN excluded.title ELSE articles.title END,
+       -- Extraction owns the title once it succeeds. Until then take the newest
+       -- one seen, so an embed title can still replace a URL-derived guess.
+       title = CASE WHEN articles.extraction_status = 'indexed'
+                    THEN articles.title ELSE excluded.title END,
        first_posted_at = min(articles.first_posted_at, excluded.first_posted_at),
        last_posted_at = max(articles.last_posted_at, excluded.last_posted_at),
        updated_at = excluded.updated_at`,
@@ -200,7 +203,10 @@ export async function searchArticles(
   const latest = await latestOccurrences(db, pageRows.map((row) => row.id));
   const items = pageRows.flatMap((row): ArticleResult[] => {
     const occurrence = latest.get(row.id);
-    if (!occurrence) return [];
+    if (!occurrence) {
+      console.warn("Milton found an article with no occurrences", row.id, row.normalized_url);
+      return [];
+    }
     return [{
       id: row.id,
       title: row.title || row.domain,
@@ -331,15 +337,15 @@ async function latestOccurrences(
   const output = new Map<number, OccurrenceRow>();
   if (!articleIds.length) return output;
   const placeholders = articleIds.map(() => "?").join(",");
+  // SQLite pairs the bare columns with the row that supplied max(posted_at), so
+  // this returns one row per article instead of every share of a popular link.
   const result = await db.prepare(
-    `SELECT id, article_id, channel_name, author_name, posted_at, message_url
+    `SELECT id, article_id, channel_name, author_name, max(posted_at) posted_at, message_url
      FROM occurrences
      WHERE article_id IN (${placeholders})
-     ORDER BY posted_at DESC, id DESC`,
+     GROUP BY article_id`,
   ).bind(...articleIds).all<OccurrenceRow>();
-  for (const row of result.results) {
-    if (!output.has(row.article_id)) output.set(row.article_id, row);
-  }
+  for (const row of result.results) output.set(row.article_id, row);
   return output;
 }
 

@@ -31,7 +31,7 @@ const PRIVATE_HOST_PATTERNS = [
 ];
 
 const URL_PATTERN = /https?:\/\/[^\s<>]+/giu;
-const TRAILING_PUNCTUATION = /[),.!?;:'"\]}]+$/u;
+const TRAILING_PUNCTUATION = new Set([")", ",", ".", "!", "?", ";", ":", "'", '"', "]", "}"]);
 
 export interface NormalizedLink {
   originalUrl: string;
@@ -39,8 +39,30 @@ export interface NormalizedLink {
   domain: string;
 }
 
+/**
+ * Prose runs into URLs ("see https://example.com/x."), so trailing punctuation is
+ * dropped -- except a ")" that closes a "(" belonging to the URL itself, as in
+ * https://en.wikipedia.org/wiki/Foo_(bar).
+ */
+export function trimUrlPunctuation(raw: string): string {
+  let url = raw;
+  while (url.length) {
+    const last = url.at(-1)!;
+    if (!TRAILING_PUNCTUATION.has(last)) break;
+    if (last === ")" && count(url, "(") >= count(url, ")")) break;
+    url = url.slice(0, -1);
+  }
+  return url;
+}
+
+function count(value: string, character: string): number {
+  let total = 0;
+  for (const item of value) if (item === character) total += 1;
+  return total;
+}
+
 export function normalizeUrl(raw: string): NormalizedLink | null {
-  const cleaned = raw.replace(TRAILING_PUNCTUATION, "");
+  const cleaned = trimUrlPunctuation(raw);
   let url: URL;
   try {
     url = new URL(cleaned);

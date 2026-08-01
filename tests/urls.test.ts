@@ -21,6 +21,15 @@ describe("URL ingestion", () => {
     expect(normalizeUrl("http://192.168.1.10/")).toBeNull();
   });
 
+  it("drops trailing prose punctuation but keeps balanced parentheses", () => {
+    expect(normalizeUrl("https://en.wikipedia.org/wiki/Foo_(bar)")?.normalizedUrl)
+      .toBe("https://en.wikipedia.org/wiki/Foo_(bar)");
+    expect(normalizeUrl("https://example.com/a).")?.normalizedUrl)
+      .toBe("https://example.com/a");
+    expect(normalizeUrl("https://example.com/Foo_(bar),")?.normalizedUrl)
+      .toBe("https://example.com/Foo_(bar)");
+  });
+
   it("creates a readable fallback title", () => {
     expect(fallbackTitle("https://example.com/a/useful-article_title")).toBe("useful article title");
     expect(fallbackTitle("https://example.com/")).toBe("example.com");

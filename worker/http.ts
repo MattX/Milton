@@ -13,7 +13,8 @@ export function methodNotAllowed(...allowed: string[]): Response {
 }
 
 export function errorResponse(error: unknown): Response {
-  const message = error instanceof Error ? error.message : "Unexpected error";
+  // Logged for observability, never returned: these messages carry request URLs
+  // and upstream response bodies.
   console.error(error);
-  return json({ error: "internal_error", message }, { status: 500 });
+  return json({ error: "internal_error" }, { status: 500 });
 }
