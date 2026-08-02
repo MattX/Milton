@@ -209,9 +209,13 @@ export class FirestoreRepository implements Repository {
       const ref = refs[index]!;
       const existing = snapshots[index]!.data() as ChannelCursorDocument | undefined;
       if (existing) {
+        // A cursor with no live boundary was never seeded — it predates seeding at creation, or its
+        // channel was unreachable at the time. Repair it rather than polling from a missing cursor.
+        const repair = existing.liveAfterId ? null : initialChannelCursor(value.lastMessageId, Date.now());
+        const renamed = existing.channelName !== value.channelName || existing.archived !== value.archived;
         // Only write when something actually changed; discovery runs every five minutes.
-        if (existing.channelName === value.channelName && existing.archived === value.archived) continue;
-        writer.update(ref, { channelName: value.channelName, archived: value.archived, updatedAt: now });
+        if (!renamed && !repair) continue;
+        writer.update(ref, { channelName: value.channelName, archived: value.archived, ...repair, updatedAt: now });
       } else {
         writer.create(ref, {
           channelId: value.channelId,

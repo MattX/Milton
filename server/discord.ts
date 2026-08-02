@@ -129,10 +129,10 @@ export class DiscordIngestion {
       signal: AbortSignal.timeout(15_000),
     });
     if (response.status === 429) {
-      throw new Error(`Discord rate limited ${path}; retry after ${response.headers.get("retry-after") || "unknown"}s`);
+      throw new DiscordApiError(429, `Discord rate limited ${path}; retry after ${response.headers.get("retry-after") || "unknown"}s`);
     }
     if (!response.ok) {
-      throw new Error(`Discord ${response.status} for ${path}: ${(await response.text()).slice(0, 500)}`);
+      throw new DiscordApiError(response.status, `Discord ${response.status} for ${path}: ${(await response.text()).slice(0, 500)}`);
     }
     return response.json() as Promise<T>;
   }
@@ -142,8 +142,20 @@ export class DiscordIngestion {
     try {
       await run();
     } catch (error) {
+      // Denied access is how a guild scopes Milton to part of its channels, so it is an expected
+      // steady state rather than a fault: note it without the five-minute stack trace.
+      if (error instanceof DiscordApiError && error.status === 403) {
+        console.info(`Milton has no access to ${label}; skipping`);
+        return;
+      }
       console.error(`Milton ingestion step failed (${label})`, error);
     }
+  }
+}
+
+class DiscordApiError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
   }
 }
 
