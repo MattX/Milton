@@ -214,10 +214,6 @@ function LoginScreen({ error }: { error: string | null }) {
   return (
     <main className="login-screen">
       <div className="login-card">
-        <span className="large-mark">M</span>
-        <p className="eyebrow">The shared-link index</p>
-        <h1>Your community has excellent taste. Find it again.</h1>
-        <p>Milton quietly indexes articles shared in Discord, then connects every result back to the conversation where it appeared.</p>
         {error && <div className="notice error">{error}</div>}
         <a className="discord-button" href="/auth/discord">
           <span aria-hidden="true">◖◗</span> Continue with Discord
