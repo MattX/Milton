@@ -3,6 +3,7 @@ node_modules
 build
 dist
 .env
+.env.deploy
 .dev.vars
 infra/.terraform
 infra/*.tfstate*

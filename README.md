@@ -18,11 +18,19 @@ The service fetches server-rendered HTML directly. Mozilla Readability is tried 
 
 ## Local development
 
-Requirements are Node.js 22 or newer and Application Default Credentials with Firestore/Cloud Tasks access. Copy `.env.example` to `.env`, then run the API and UI in separate terminals:
+Requirements are Node.js 22 or newer and Application Default Credentials with Firestore/Cloud Tasks access. Copy `.env.example` to `.env`, install dependencies, then run the API and UI in separate terminals:
 
 ```sh
 npm install
+```
+
+```sh
+# Terminal 1: API on port 8080
 npm run dev:server
+```
+
+```sh
+# Terminal 2: Vite UI
 npm run dev
 ```
 
@@ -34,47 +42,62 @@ Run all checks with:
 npm run check
 ```
 
-## Provision a new GCP project
+## Deploy to GCP
 
-The Terraform in `infra/` treats an existing dedicated project as an input, enables the required APIs, and creates a named `milton` Enterprise Native-mode Firestore database, Artifact Registry, the two queues, three least-privilege service accounts, Secret Manager containers, and a $1 monthly billing budget. Enterprise currently rejects the `(default)` database ID. Project creation and billing attachment deliberately remain outside the application stack. It never touches a database in another project.
+Prerequisites:
 
-```sh
-cd infra
-terraform init
-terraform apply \
-  -var='project_id=YOUR_NEW_PROJECT_ID' \
-  -var='billing_account=YOUR_BILLING_ACCOUNT_ID' \
-  -var='container_image=us-central1-docker.pkg.dev/YOUR_NEW_PROJECT_ID/milton/app:TAG' \
-  -var='discord_application_id=YOUR_APPLICATION_ID' \
-  -var='discord_guild_id=YOUR_GUILD_ID' \
-  -var='admin_discord_user_ids=123,456'
-cd ..
-```
+- Node.js 22 or newer, Terraform 1.7 or newer, and the Google Cloud CLI.
+- An existing dedicated GCP project with billing attached. Project creation and billing attachment deliberately remain outside this Terraform stack.
+- A Google account allowed to administer that project and create a budget on its billing account.
+- A Discord application, bot token, and OAuth client secret.
 
-Add secret versions without putting values in Terraform state or this repository:
+Authenticate both the Google Cloud CLI and Terraform's Application Default Credentials:
 
 ```sh
-printf '%s' "$DISCORD_CLIENT_SECRET" | gcloud secrets versions add discord-client-secret --project YOUR_NEW_PROJECT_ID --data-file=-
-printf '%s' "$DISCORD_BOT_TOKEN" | gcloud secrets versions add discord-bot-token --project YOUR_NEW_PROJECT_ID --data-file=-
-openssl rand -base64 48 | gcloud secrets versions add session-secret --project YOUR_NEW_PROJECT_ID --data-file=-
+gcloud auth login
+gcloud auth application-default login
 ```
 
-The current Google Terraform provider provisions the preview text index over `title`, `domain`, and `body`. If the preview API rejects that resource in your project, use the documented console fallback: Firestore → `milton` → Indexes, create one **Text** index for collection `articles`, query scope **Collection**, and those same three fields.
-
-## Deploy
-
-Authenticate `gcloud`, export the non-secret settings, and run:
+Create the ignored deployment environment file and fill in its nonsecret values:
 
 ```sh
-export GOOGLE_CLOUD_PROJECT=YOUR_NEW_PROJECT_ID
-export BILLING_ACCOUNT=YOUR_BILLING_ACCOUNT_ID
-export DISCORD_APPLICATION_ID=...
-export DISCORD_GUILD_ID=...
-export ADMIN_DISCORD_USER_IDS=123,456
-./scripts/deploy-gcp.sh
+cp .env.deploy.example .env.deploy
+# Edit .env.deploy and fill in every required value.
 ```
 
-The script only builds the image and passes its version to Terraform. Terraform owns Cloud Run, its public invoker policy, all runtime configuration, and the five-minute Scheduler job. Cloud Run uses request-based billing, 1 vCPU, 1 GiB RAM, zero minimum/two maximum instances, concurrency 20, and a 60-second timeout. Secret values remain outside Terraform state.
+Bootstrap the required APIs, Artifact Registry repository, and empty Secret Manager containers:
+
+```sh
+npm run bootstrap
+```
+
+Install the secret payloads manually. These commands prompt without echoing or placing the values in shell history:
+
+```sh
+set -a
+source .env.deploy
+set +a
+
+bash -c 'read -r -s -p "Discord OAuth client secret: " value; echo; printf %s "$value" | gcloud secrets versions add discord-client-secret --project "$TF_VAR_project_id" --data-file=-'
+bash -c 'read -r -s -p "Discord bot token: " value; echo; printf %s "$value" | gcloud secrets versions add discord-bot-token --project "$TF_VAR_project_id" --data-file=-'
+openssl rand -base64 48 | gcloud secrets versions add session-secret --project "$TF_VAR_project_id" --data-file=-
+```
+
+Then deploy the application:
+
+```sh
+npm run deploy
+```
+
+The deploy command verifies that all three secrets have an enabled version, builds a uniquely tagged image with Cloud Build, runs the full Terraform apply, and prints the service URL. It never reads, creates, or rotates secret payloads.
+
+Subsequent deployments need only `npm run deploy`. Rotate a credential explicitly by rerunning its `gcloud secrets versions add` command and then deploying a new revision. Rotating `session-secret` signs all users out.
+
+Terraform owns the named `milton` Enterprise database with Firestore Native access explicitly enabled and MongoDB-compatible access disabled, all indexes, Artifact Registry, Cloud Run, queues, service accounts, IAM, secret containers, Scheduler, and the $1 monthly budget. Secret payloads never enter Terraform state or version control. State is local under `infra/` by default; configure a GCS backend before using this as a multi-operator deployment.
+
+Cloud Run uses request-based billing, 1 vCPU, 1 GiB RAM, zero minimum/two maximum instances, concurrency 20, and a 60-second timeout. Enterprise rejects the `(default)` database ID, so Milton uses the named database `milton`.
+
+The current Google Terraform provider provisions the preview text index over `title`, `domain`, and `body`. If the preview API rejects that resource in a future project, use the console fallback: Firestore → `milton` → Indexes, create one **Text** index for collection `articles`, query scope **Collection**, and those same three fields.
 
 ## Discord application setup
 
@@ -86,10 +109,10 @@ In the Discord Developer Portal:
 4. Install the bot to the guild with the `bot` scope and only **View Channels** plus **Read Message History** (permission bitfield `66560`). No slash-command, send-message, manage-server, or administrator permission is required.
 5. Use per-channel permission overrides if Milton should index only part of the guild.
 
-For application `1533547556905160795`, the minimal guild-install URL is:
+The minimal guild-install URL is:
 
 ```text
-https://discord.com/oauth2/authorize?client_id=1533547556905160795&permissions=66560&integration_type=0&scope=bot
+https://discord.com/oauth2/authorize?client_id=YOUR_APPLICATION_ID&permissions=66560&integration_type=0&scope=bot
 ```
 
 Sign in as a configured administrator and select **Start historical backfill**. No old Datastore, D1, Turso, or Algolia migration is expected: Discord history is the source of truth.

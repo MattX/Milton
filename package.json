@@ -11,7 +11,8 @@
     "build": "npm run build:client && npm run build:server",
     "start": "node build/server/index.js",
     "preview": "npm run build && npm start",
-    "deploy": "gcloud run deploy milton --source . --region us-central1",
+    "bootstrap": "./scripts/bootstrap-gcp.sh",
+    "deploy": "./scripts/deploy-gcp.sh",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "check": "npm run typecheck && npm run test && npm run build"

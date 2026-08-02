@@ -2,6 +2,7 @@
 .git
 .gitignore
 .env
+.env.deploy
 .dev.vars
 node_modules
 build
