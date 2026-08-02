@@ -1,7 +1,13 @@
-import { cloudflare } from "@cloudflare/vite-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [react(), cloudflare()],
+  plugins: [react()],
+  server: {
+    proxy: {
+      "/api": "http://localhost:8080",
+      "/auth": "http://localhost:8080",
+      "/internal": "http://localhost:8080",
+    },
+  },
 });

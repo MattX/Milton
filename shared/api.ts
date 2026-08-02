@@ -7,7 +7,7 @@ export interface SessionUser {
 }
 
 export interface OccurrenceResult {
-  id: number;
+  id: string;
   channelName: string;
   authorName: string;
   postedAt: string;
@@ -15,7 +15,7 @@ export interface OccurrenceResult {
 }
 
 export interface ArticleResult {
-  id: number;
+  id: string;
   title: string;
   url: string;
   domain: string;
@@ -30,8 +30,6 @@ export interface SearchResponse {
 }
 
 export interface AdminStatus {
-  browserMillisecondsToday: number;
-  browserDailyLimitMilliseconds: number;
   backfillEnabled: boolean;
   backfillPausedReason: string | null;
   pendingLiveJobs: number;

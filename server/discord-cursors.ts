@@ -10,8 +10,6 @@ export function initialChannelCursor(messageIds: string[], nowMs: number): Initi
   const newest = extremeSnowflake(messageIds, "max") || snowflakeAt(nowMs);
   return {
     liveAfterId: newest,
-    // Discord's `before` boundary is exclusive, so the successor includes the
-    // newest existing message when historical backfill eventually begins.
     backfillBeforeId: messageIds.length ? String(BigInt(newest) + 1n) : null,
     backfillComplete: messageIds.length === 0,
   };
@@ -25,7 +23,6 @@ export function extremeSnowflake(values: string[], pick: "min" | "max"): string 
   }, null);
 }
 
-/** Discord snowflakes sort chronologically and reserve 22 low bits per millisecond. */
 function snowflakeAt(milliseconds: number): string {
   return ((BigInt(milliseconds - DISCORD_EPOCH_MS)) << 22n).toString();
 }

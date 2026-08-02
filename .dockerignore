@@ -1,0 +1,9 @@
+.git
+node_modules
+build
+dist
+.env
+.dev.vars
+infra/.terraform
+infra/*.tfstate*
+infra/*.tfplan

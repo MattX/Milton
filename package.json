@@ -4,32 +4,40 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "WRANGLER_WRITE_LOGS=0 vite dev",
-    "build": "WRANGLER_WRITE_LOGS=0 vite build",
-    "preview": "npm run build && vite preview",
-    "deploy": "npm run build && WRANGLER_WRITE_LOGS=0 wrangler deploy",
+    "dev": "vite dev",
+    "dev:server": "tsx --env-file=.env watch server/index.ts",
+    "build:client": "vite build",
+    "build:server": "tsc -p tsconfig.server-build.json",
+    "build": "npm run build:client && npm run build:server",
+    "start": "node build/server/index.js",
+    "preview": "npm run build && npm start",
+    "deploy": "gcloud run deploy milton --source . --region us-central1",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "db:verify": "sqlite3 :memory: < migrations/0001_initial.sql",
-    "check": "npm run typecheck && npm run test && npm run db:verify && npm run build",
-    "db:migrate:local": "WRANGLER_WRITE_LOGS=0 wrangler d1 migrations apply milton --local",
-    "db:migrate:remote": "WRANGLER_WRITE_LOGS=0 wrangler d1 migrations apply milton --remote"
+    "check": "npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
+    "@google-cloud/firestore": "^8.7.0",
+    "@google-cloud/tasks": "^6.3.0",
+    "@mozilla/readability": "^0.6.0",
     "@vitejs/plugin-react": "^6.0.5",
-    "vite": "^8.2.0",
-    "@cloudflare/vite-plugin": "^1.50.0",
-    "@cloudflare/workers-types": "^5.20260801.1",
+    "express": "^5.2.1",
+    "google-auth-library": "^11.0.0",
+    "ipaddr.js": "^2.4.0",
+    "jsdom": "^30.0.1",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "vite": "^8.2.0"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/jsdom": "^28.0.3",
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "tsx": "^4.20.6",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10",
-    "wrangler": "^4.118.0"
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=22"

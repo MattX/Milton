@@ -1,15 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { makeExcerpt, markdownToPlainText, titleFromMarkdown } from "../worker/content";
+import { limitBody, makeExcerpt } from "../server/content";
 
 describe("content extraction", () => {
-  it("finds a heading and removes common Markdown syntax", () => {
-    const markdown = "# A **useful** title\n\nRead [the story](https://example.com) with `code`.";
-    expect(titleFromMarkdown(markdown)).toBe("A useful title");
-    expect(markdownToPlainText(markdown)).toContain("Read the story with code.");
+  it("normalizes article whitespace", () => {
+    expect(limitBody("First line.  \n\n\n\nSecond line.")).toBe("First line.\n\nSecond line.");
   });
 
   it("caps indexed text by UTF-8 bytes", () => {
-    const result = markdownToPlainText("é".repeat(40_000));
+    const result = limitBody("é".repeat(40_000));
     expect(new TextEncoder().encode(result).byteLength).toBeLessThanOrEqual(32 * 1024);
   });
 

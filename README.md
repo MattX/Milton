@@ -1,31 +1,32 @@
 # Milton
 
-Milton is a private full-text search engine for links shared in Discord. It discovers readable channels, extracts readable article text with Cloudflare Browser Run, indexes it in D1/SQLite FTS5, and links every result to both the original page and Discord discussion.
+Milton is a private full-text search engine for links shared in Discord. It runs as one Node/TypeScript service on Cloud Run, stores its reconstructible index in Firestore Enterprise (Native mode), and sends extraction work through separate live and historical Cloud Tasks queues.
 
-The application is a TypeScript Cloudflare Worker with a React/Vite UI.
+The service fetches server-rendered HTML directly. Mozilla Readability is tried first, followed by JSON-LD `articleBody` and OpenGraph/description metadata. A failed extraction remains a searchable title/domain/link record with its Discord backlink and a structured failure class. Chrome is intentionally not part of the initial deployment.
 
 ## Architecture
 
-- A one-minute Cron Trigger polls Discord's REST API using durable per-channel cursors.
-- D1 stores articles, every Discord occurrence, backfill state, quota accounting, and an FTS5 index.
-- Cloudflare Queue delivers idempotent extraction jobs to Browser Run's `/markdown` Quick Action.
-- New links take priority. Historical backfill pauses at the configured free-tier browser-time and backlog thresholds.
-- Discord OAuth grants an eight-hour signed session only after `guilds.members.read` confirms membership in the configured server.
-
-Reader mode is intentionally omitted. Failed extractions remain searchable by their fallback title and domain and retain their Discord backlinks.
+- Cloud Scheduler invokes the OIDC-protected `/internal/poll` endpoint every five minutes.
+- Discord cursors are persisted per channel. Existing history is read in resumable 100-message pages; live cursors advance only after message persistence succeeds.
+- Firestore collections are `articles`, `occurrences`, `discordCursors`, `extractionJobs`, and `systemState`. Article IDs and occurrence IDs are deterministic SHA-256 values, making redelivery idempotent.
+- Each article embeds its latest Discord occurrence, so search results require no join.
+- `milton-live-extraction` and `milton-history-extraction` are independent Cloud Tasks queues. Live reposts can promote pending historical jobs.
+- Extraction uses a 15-second timeout, no more than five redirects, a 2 MiB response cap, HTML content-type checks, DNS pinning, and rejection of every hostname that resolves to any non-public address.
+- Bodies are capped at 32 KiB. Extraction method, hostname, status, content length, and failure class are stored with the article.
+- Discord OAuth sessions last eight hours and require current membership in the configured guild.
+- Google-signed ID tokens are verified again in the app for `/internal/*`; only the configured scheduler and task service accounts are accepted.
 
 ## Local development
 
-Requirements: Node.js 22 or newer, npm, and `sqlite3` for the schema verification test.
+Requirements are Node.js 22 or newer and Application Default Credentials with Firestore/Cloud Tasks access. Copy `.env.example` to `.env`, then run the API and UI in separate terminals:
 
 ```sh
 npm install
-cp .dev.vars.example .dev.vars
-npm run db:migrate:local
+npm run dev:server
 npm run dev
 ```
 
-Browser Run Quick Actions require a remote binding. For extraction testing, authenticate Wrangler and run Vite with the remote browser binding configured through Cloudflare; ordinary UI, D1, and API development can remain local.
+For local handler testing only, set `ALLOW_UNAUTHENTICATED_INTERNAL=true` and leave `NODE_ENV` other than `production`. This bypass is deliberately ignored in production.
 
 Run all checks with:
 
@@ -33,70 +34,70 @@ Run all checks with:
 npm run check
 ```
 
-## Cloudflare setup
+## Provision a new GCP project
 
-The initial deployment is designed for Workers Free. Create the resources before deploying:
-
-```sh
-npx wrangler login
-npx wrangler d1 create milton
-npx wrangler queues create milton-extraction
-npx wrangler queues create milton-extraction-dead-letter
-```
-
-Copy the returned D1 database ID into `wrangler.jsonc`. Then configure the non-secret values in `vars`:
-
-- `DISCORD_APPLICATION_ID`
-- `DISCORD_GUILD_ID`
-- `ADMIN_DISCORD_USER_IDS`, as comma-separated IDs
-
-Install secrets without putting them in the repository:
+The Terraform in `infra/` treats an existing dedicated project as an input, enables the required APIs, and creates a named `milton` Enterprise Native-mode Firestore database, Artifact Registry, the two queues, three least-privilege service accounts, Secret Manager containers, and a $1 monthly billing budget. Enterprise currently rejects the `(default)` database ID. Project creation and billing attachment deliberately remain outside the application stack. It never touches a database in another project.
 
 ```sh
-npx wrangler secret put DISCORD_CLIENT_SECRET
-npx wrangler secret put DISCORD_BOT_TOKEN
-npx wrangler secret put SESSION_SECRET
+cd infra
+terraform init
+terraform apply \
+  -var='project_id=YOUR_NEW_PROJECT_ID' \
+  -var='billing_account=YOUR_BILLING_ACCOUNT_ID' \
+  -var='container_image=us-central1-docker.pkg.dev/YOUR_NEW_PROJECT_ID/milton/app:TAG' \
+  -var='discord_application_id=YOUR_APPLICATION_ID' \
+  -var='discord_guild_id=YOUR_GUILD_ID' \
+  -var='admin_discord_user_ids=123,456'
+cd ..
 ```
 
-Use at least 32 random bytes for `SESSION_SECRET`, for example from `openssl rand -base64 32`.
-
-Apply the production migration and deploy:
+Add secret versions without putting values in Terraform state or this repository:
 
 ```sh
-npm run db:migrate:remote
-npm run deploy
+printf '%s' "$DISCORD_CLIENT_SECRET" | gcloud secrets versions add discord-client-secret --project YOUR_NEW_PROJECT_ID --data-file=-
+printf '%s' "$DISCORD_BOT_TOKEN" | gcloud secrets versions add discord-bot-token --project YOUR_NEW_PROJECT_ID --data-file=-
+openssl rand -base64 48 | gcloud secrets versions add session-secret --project YOUR_NEW_PROJECT_ID --data-file=-
 ```
 
-## Discord setup
+The current Google Terraform provider provisions the preview text index over `title`, `domain`, and `body`. If the preview API rejects that resource in your project, use the documented console fallback: Firestore → `milton` → Indexes, create one **Text** index for collection `articles`, query scope **Collection**, and those same three fields.
 
-Create one application in the Discord Developer Portal:
+## Deploy
 
-1. Create its bot and enable the Message Content privileged intent.
-2. Install it in the target server with `View Channel` and `Read Message History` only where Milton should index links. Channel discovery follows those permissions.
-3. Add `https://YOUR_HOST/auth/callback` as an OAuth2 redirect URL.
-4. Keep the bot token and OAuth client secret only in Wrangler secrets.
+Authenticate `gcloud`, export the non-secret settings, and run:
 
-The OAuth login requests `identify` and `guilds.members.read`; it does not request the user's complete guild list. Discord access tokens are discarded after each membership check.
+```sh
+export GOOGLE_CLOUD_PROJECT=YOUR_NEW_PROJECT_ID
+export BILLING_ACCOUNT=YOUR_BILLING_ACCOUNT_ID
+export DISCORD_APPLICATION_ID=...
+export DISCORD_GUILD_ID=...
+export ADMIN_DISCORD_USER_IDS=123,456
+./scripts/deploy-gcp.sh
+```
 
-After deployment, sign in as a configured administrator. Live polling starts automatically. Use the Indexer status panel to start the historical backfill and monitor browser time, pending jobs, failures, and channel progress.
+The script only builds the image and passes its version to Terraform. Terraform owns Cloud Run, its public invoker policy, all runtime configuration, and the five-minute Scheduler job. Cloud Run uses request-based billing, 1 vCPU, 1 GiB RAM, zero minimum/two maximum instances, concurrency 20, and a 60-second timeout. Secret values remain outside Terraform state.
 
-## Free-tier behavior and upgrading
+## Discord application setup
 
-Defaults reserve two of Browser Run's ten daily free minutes for newly shared links and allow backfill to consume the other eight. Backfill also pauses at 100 pending historical jobs. These thresholds can be changed with:
+In the Discord Developer Portal:
 
-- `BROWSER_DAILY_LIMIT_MS`
-- `BACKFILL_DAILY_BUDGET_MS`
+1. Under **OAuth2 → General → Redirects**, add the exact Terraform `oauth_callback_url` output. Discord requires an exact match, including `https` and `/auth/callback`.
+2. No user OAuth scopes need to be preconfigured in the portal. Milton's login route requests `identify` and `guilds.members.read`; the latter is used only to confirm membership in the configured guild.
+3. Under **Bot → Privileged Gateway Intents**, enable **Message Content Intent**. Do not enable Server Members or Presence intents for Milton.
+4. Install the bot to the guild with the `bot` scope and only **View Channels** plus **Read Message History** (permission bitfield `66560`). No slash-command, send-message, manage-server, or administrator permission is required.
+5. Use per-channel permission overrides if Milton should index only part of the guild.
 
-D1 exposes no database size over SQL, so there is no storage threshold; the daily browser budget is what bounds growth. Check size with `npx wrangler d1 info milton`.
+For application `1533547556905160795`, the minimal guild-install URL is:
 
-Workers Paid expands the same D1 database from 500 MB to 10 GB and raises Browser Run and CPU limits. No data migration is needed. After upgrading, increase the configured limits and redeploy so Browser Run associates the Worker with the paid plan.
+```text
+https://discord.com/oauth2/authorize?client_id=1533547556905160795&permissions=66560&integration_type=0&scope=bot
+```
 
-## Operational behavior
+Sign in as a configured administrator and select **Start historical backfill**. No old Datastore, D1, Turso, or Algolia migration is expected: Discord history is the source of truth.
 
-- Polling and extraction are idempotent; reposting a URL creates another occurrence without another article row.
-- A Discord cursor advances only after its messages have been stored.
-- Extraction failures retry three times and then become link-only results.
-- Queue messages are only a wake-up nudge; `extraction_jobs.next_attempt_at` is the real schedule, so quota deferrals never consume a delivery attempt.
-- Text and announcement channels are discovered continuously. Active public threads are indexed like channels; archived threads retain their existing search results but are no longer polled.
-- Each run polls a bounded number of channels, oldest-polled first, to stay inside the Workers Free subrequest budget.
-- Removing someone from Discord revokes access when their current session expires, within at most eight hours.
+## Operations and acceptance
+
+- A URL repost creates another occurrence without duplicating the article or extraction job.
+- Cloud Tasks names are deterministic, claims are transactional, and temporary failures retry up to three deliveries. Permanent failures become link-only records immediately.
+- Review `extractionFailureClass` grouped by `extractionHostname` after the backfill. Test a browser on a representative 20-URL sample only if at least 20 useful JS-only failures, or more than 10% of useful links, fail HTTP extraction.
+- Verify representative phrase, exclusion, Unicode, and relevance searches; conversation backlinks; OAuth rejection outside the guild; cursor resumption; and discovery within roughly five minutes.
+- The two-instance cap and queue dispatch limits bound load. The $1 budget is an alert, not a hard spending cap.

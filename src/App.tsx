@@ -192,7 +192,7 @@ function AdminPanel() {
       {status && (
         <>
           <div className="metric-grid">
-            <Metric label="Browser today" value={`${formatDuration(status.browserMillisecondsToday)} / ${formatDuration(status.browserDailyLimitMilliseconds)}`} />
+            <Metric label="Extractor" value="HTTP + Readability" />
             <Metric label="Live jobs" value={String(status.pendingLiveJobs)} />
             <Metric label="Historical jobs" value={String(status.pendingBackfillJobs)} />
             <Metric label="Channels complete" value={`${status.channelsComplete} / ${status.channelsTotal}`} />
@@ -263,10 +263,6 @@ function relativeDate(value: string): string {
     }
   }
   return new Date(value).toLocaleDateString();
-}
-
-function formatDuration(milliseconds: number): string {
-  return `${(milliseconds / 60_000).toFixed(1)} min`;
 }
 
 function errorMessage(error: unknown): string {

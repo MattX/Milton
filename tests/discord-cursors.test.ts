@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialChannelCursor } from "../worker/discord-cursors";
+import { initialChannelCursor } from "../server/discord-cursors";
 
 describe("Discord channel initialization", () => {
   it("marks an empty channel complete while retaining a live time boundary", () => {

@@ -1,0 +1,13 @@
+.gcloudignore
+.git
+.gitignore
+.env
+.dev.vars
+node_modules
+build
+dist
+.wrangler
+worker-configuration.d.ts
+infra/.terraform
+infra/*.tfstate*
+infra/*.tfplan

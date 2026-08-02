@@ -1,7 +1,0 @@
-DISCORD_APPLICATION_ID="your-application-id"
-DISCORD_CLIENT_SECRET="your-oauth-client-secret"
-DISCORD_BOT_TOKEN="your-bot-token"
-DISCORD_GUILD_ID="your-server-id"
-DISCORD_CHANNEL_IDS="channel-id-1,channel-id-2"
-ADMIN_DISCORD_USER_IDS="your-user-id"
-SESSION_SECRET="generate-at-least-32-random-bytes"

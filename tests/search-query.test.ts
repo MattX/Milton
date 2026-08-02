@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { decodeCursor, encodeCursor, toFtsQuery } from "../worker/search-query";
+import { decodeCursor, encodeCursor, normalizeSearchQuery } from "../server/search-query";
 
 describe("search query handling", () => {
-  it("builds an escaped AND-prefix query", () => {
-    expect(toFtsQuery("  Distributed systems!  ")).toBe('"Distributed"* AND "systems"*');
+  it("normalizes words while preserving phrases and exclusions", () => {
+    expect(normalizeSearchQuery('  Distributed systems -legacy "exact phrase"!  '))
+      .toBe('Distributed systems -legacy "exact phrase"');
+    expect(normalizeSearchQuery("café 東京")).toBe("café 東京");
   });
 
   it("rejects punctuation-only queries", () => {
-    expect(toFtsQuery("---")).toBeNull();
+    expect(normalizeSearchQuery("---")).toBeNull();
   });
 
   it("round-trips pagination offsets and rejects out-of-range cursors", () => {

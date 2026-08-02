@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractLinks, fallbackTitle, normalizeUrl } from "../worker/urls";
+import { extractLinks, fallbackTitle, normalizeUrl } from "../server/urls";
 
 describe("URL ingestion", () => {
   it("extracts, normalizes, and deduplicates external links", () => {
