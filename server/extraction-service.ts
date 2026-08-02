@@ -9,24 +9,28 @@ export class ExtractionService {
     private readonly extractor: typeof extractArticle = extractArticle,
   ) {}
 
-  /** Returns true when Cloud Tasks should retry this delivery. */
+  /** Returns true when Cloud Tasks should redeliver this task. */
   async run(articleId: string): Promise<boolean> {
-    const claimed = await this.repository.claimExtraction(articleId);
-    if (!claimed) return false;
+    const claim = await this.repository.claimExtraction(articleId);
+    // Another delivery holds the lease. It may be a duplicate, or a worker that died mid-extraction,
+    // so ask for redelivery rather than acknowledging work that might never have happened.
+    if (claim.status === "leased") return true;
+    if (claim.status === "settled") return false;
+
     try {
-      const outcome = await this.extractor(claimed.article.normalizedUrl);
-      await this.repository.completeExtraction(articleId, outcome);
+      await this.repository.completeExtraction(articleId, await this.extractor(claim.article.normalizedUrl));
       return false;
     } catch (error) {
-      const extractionError = error instanceof ExtractionError ? error : new ExtractionError(
-        "network_error", error instanceof Error ? error.message : "Unknown extraction error",
-        { hostname: claimed.article.domain, httpStatus: null, contentLength: null },
+      const failure = error instanceof ExtractionError ? error : new ExtractionError(
+        "network_error",
+        error instanceof Error ? error.message : "Unknown extraction error",
+        { hostname: claim.article.domain, httpStatus: null, contentLength: null },
       );
-      const terminal = extractionError.permanent || claimed.job.attempts >= MAX_ATTEMPTS;
+      const terminal = failure.permanent || claim.job.attempts >= MAX_ATTEMPTS;
       await this.repository.failExtraction(articleId, {
-        failureClass: extractionError.failureClass,
-        message: extractionError.message,
-        ...extractionError.metadata,
+        failureClass: failure.failureClass,
+        message: failure.message,
+        ...failure.metadata,
       }, terminal);
       return !terminal;
     }

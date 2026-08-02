@@ -14,8 +14,6 @@ describe.skipIf(!repository)("Firestore Enterprise repository contract", () => {
     if (!db) return;
     const writer = db.bulkWriter();
     for (const id of createdArticleIds) {
-      const occurrences = await db.collection("occurrences").where("articleId", "==", id).get();
-      for (const occurrence of occurrences.docs) writer.delete(occurrence.ref);
       writer.delete(db.collection("articles").doc(id));
       writer.delete(db.collection("extractionJobs").doc(id));
     }

@@ -1,6 +1,7 @@
 const MAX_QUERY_LENGTH = 200;
 const MAX_TERMS = 12;
-const MAX_OFFSET = 100_000;
+/** Firestore bills every document an offset skips, so pagination stops well short of runaway cost. */
+const MAX_OFFSET = 2_000;
 
 /** Preserve Firestore's phrase and exclusion syntax while dropping unsupported punctuation. */
 export function normalizeSearchQuery(input: string): string | null {

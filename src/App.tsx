@@ -11,21 +11,24 @@ interface SessionResponse {
   user?: SessionUser;
 }
 
+/** `search` replaces the visible results; `more` appends the next page to them. */
+type Pending = null | "search" | "more";
+
 export default function App() {
   const [session, setSession] = useState<SessionResponse | null>(null);
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
   const [results, setResults] = useState<SearchResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState<Pending>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Identifies the newest request so a slow "load more" cannot append its page
   // onto the results of a search submitted after it.
   const latestRequest = useRef(0);
 
-  const loadResults = useCallback(async (search: string, cursor?: string, append = false) => {
+  const loadResults = useCallback(async (search: string, cursor?: string) => {
     const request = (latestRequest.current += 1);
-    setLoading(true);
+    setPending(cursor ? "more" : "search");
     setError(null);
     try {
       const params = new URLSearchParams();
@@ -33,13 +36,16 @@ export default function App() {
       if (cursor) params.set("cursor", cursor);
       const response = await api<SearchResponse>(`/api/search?${params}`);
       if (request !== latestRequest.current) return;
-      setResults((current) => append && current
+      setResults((current) => (cursor && current
         ? { items: [...current.items, ...response.items], nextCursor: response.nextCursor }
-        : response);
+        : response));
     } catch (caught) {
-      if (request === latestRequest.current) setError(errorMessage(caught));
+      if (request !== latestRequest.current) return;
+      // An expired session belongs on the login screen, not in an error banner.
+      if (caught instanceof ApiError && caught.status === 401) setSession({ authenticated: false });
+      else setError(errorMessage(caught));
     } finally {
-      if (request === latestRequest.current) setLoading(false);
+      if (request === latestRequest.current) setPending(null);
     }
   }, []);
 
@@ -112,27 +118,28 @@ export default function App() {
         <section className="results-section">
           <div className="section-heading">
             <h2>{submittedQuery ? `Results for “${submittedQuery}”` : "Recently shared"}</h2>
-            {results && <span>Showing {results.items.length} links</span>}
+            {results && pending !== "search" && <span>Showing {results.items.length} links</span>}
           </div>
           {error && <div className="notice error">{error}</div>}
-          {!results && loading && <ResultSkeletons />}
-          {results?.items.length === 0 && !loading && (
+          {pending === "search" ? <ResultSkeletons /> : (
+            <div className="result-list">
+              {results?.items.map((result) => <ResultCard key={result.id} result={result} />)}
+            </div>
+          )}
+          {results?.items.length === 0 && !pending && (
             <div className="empty-state">
               <span>⌕</span>
               <h3>No links found</h3>
               <p>Try fewer words or a different spelling.</p>
             </div>
           )}
-          <div className="result-list">
-            {results?.items.map((result) => <ResultCard key={result.id} result={result} />)}
-          </div>
-          {results?.nextCursor && (
+          {results?.nextCursor && pending !== "search" && (
             <button
               className="load-more"
-              disabled={loading}
-              onClick={() => void loadResults(submittedQuery, results.nextCursor!, true)}
+              disabled={pending === "more"}
+              onClick={() => void loadResults(submittedQuery, results.nextCursor!)}
             >
-              {loading ? "Loading…" : "Load more"}
+              {pending === "more" ? "Loading…" : "Load more"}
             </button>
           )}
         </section>
@@ -171,22 +178,36 @@ function ResultCard({ result }: { result: ArticleResult }) {
 function AdminPanel() {
   const [status, setStatus] = useState<AdminStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const refresh = useCallback(() => {
-    api<AdminStatus>("/api/admin/status").then(setStatus).catch((caught) => setError(errorMessage(caught)));
+  const refresh = useCallback(async () => {
+    try {
+      setStatus(await api<AdminStatus>("/api/admin/status"));
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
   }, []);
-  useEffect(refresh, [refresh]);
 
-  async function startBackfill() {
-    await api("/api/admin/backfill", { method: "POST" });
-    refresh();
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  async function act(path: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api(path, { method: "POST" });
+      await refresh();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <section className="admin-panel">
       <div className="section-heading">
         <div><p className="eyebrow">Administrator</p><h2>Indexer status</h2></div>
-        <button className="text-button" onClick={refresh}>Refresh</button>
+        <button className="text-button" onClick={() => void refresh()}>Refresh</button>
       </div>
       {error && <div className="notice error">{error}</div>}
       {status && (
@@ -198,8 +219,19 @@ function AdminPanel() {
             <Metric label="Channels complete" value={`${status.channelsComplete} / ${status.channelsTotal}`} />
             <Metric label="Failed jobs" value={String(status.failedJobs)} warning={status.failedJobs > 0} />
           </div>
-          {status.backfillPausedReason && <div className="notice">{status.backfillPausedReason}</div>}
-          {!status.backfillEnabled && <button className="primary-button" onClick={() => void startBackfill()}>Start historical backfill</button>}
+          {!status.backfillEnabled && (
+            <>
+              <div className="notice">Backfill has not been started.</div>
+              <button className="primary-button" disabled={busy} onClick={() => void act("/api/admin/backfill")}>
+                Start historical backfill
+              </button>
+            </>
+          )}
+          {status.failedJobs > 0 && (
+            <button className="primary-button" disabled={busy} onClick={() => void act("/api/admin/retry-failed")}>
+              {busy ? "Requeueing…" : "Retry failed extractions"}
+            </button>
+          )}
         </>
       )}
     </section>
@@ -232,11 +264,17 @@ function ResultSkeletons() {
   return <div className="result-list">{[0, 1, 2].map((item) => <div className="result-card skeleton" key={item} />)}</div>;
 }
 
+class ApiError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
+
 async function api<T = unknown>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { message?: string; error?: string } | null;
-    throw new Error(payload?.message || payload?.error || `Request failed (${response.status})`);
+    throw new ApiError(response.status, payload?.message || payload?.error || `Request failed (${response.status})`);
   }
   return response.json() as Promise<T>;
 }
@@ -253,14 +291,13 @@ const RELATIVE_UNITS: Array<[Intl.RelativeTimeFormatUnit, number, number]> = [
   ["hour", 3600, 24],
   ["day", 86_400, 30],
 ];
+const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 
 function relativeDate(value: string): string {
   const seconds = (new Date(value).getTime() - Date.now()) / 1000;
   for (const [unit, size, limit] of RELATIVE_UNITS) {
     const amount = Math.round(seconds / size);
-    if (Math.abs(amount) < limit) {
-      return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(amount, unit);
-    }
+    if (Math.abs(amount) < limit) return relativeFormat.format(amount, unit);
   }
   return new Date(value).toLocaleDateString();
 }

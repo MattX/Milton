@@ -7,7 +7,6 @@ export interface SessionUser {
 }
 
 export interface OccurrenceResult {
-  id: string;
   channelName: string;
   authorName: string;
   postedAt: string;
@@ -31,7 +30,6 @@ export interface SearchResponse {
 
 export interface AdminStatus {
   backfillEnabled: boolean;
-  backfillPausedReason: string | null;
   pendingLiveJobs: number;
   pendingBackfillJobs: number;
   failedJobs: number;

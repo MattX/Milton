@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   bodyIsOversized,
   ExtractionError,
-  failureClassForHttpStatus,
   fetchHtml,
   isHtmlContentType,
   isPublicAddress,
@@ -39,11 +38,18 @@ describe("HTTP article extraction", () => {
     expect(bodyIsOversized(2 * 1024 * 1024 + 1)).toBe(true);
     expect(isHtmlContentType("text/html; charset=utf-8")).toBe(true);
     expect(isHtmlContentType("application/pdf")).toBe(false);
-    expect(failureClassForHttpStatus(403)).toBe("bot_block");
-    expect(failureClassForHttpStatus(429)).toBe("bot_block");
     expect(looksLikeBotBlock("<title>Just a moment...</title><div class='cf-chl-widget'>")).toBe(true);
     expect(() => parseArticleHtml("<title>Just a moment...</title><div class='cf-chl-widget'>"))
       .toThrowError(expect.objectContaining({ failureClass: "bot_block" }));
+  });
+
+  it("decodes a page using its declared charset rather than assuming UTF-8", () => {
+    const body = "Un café très chaud servi à la terrasse, avec des vues sur la vieille ville et le fleuve.";
+    const html = Buffer.from(`<html><head><title>Café</title></head><body><meta property="og:description" content="${body}"></body></html>`, "latin1");
+    const result = parseArticleHtml(html, new URL("https://example.com/"), 200, "text/html; charset=iso-8859-1");
+    expect(result.body).toContain("café très chaud");
+    expect(result.body).not.toContain("�");
+    expect(result.contentLength).toBe(html.byteLength);
   });
 
   it("rejects private and non-routable address ranges", async () => {

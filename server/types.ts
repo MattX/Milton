@@ -33,10 +33,9 @@ export interface DiscordMessage {
 
 export interface DiscordChannel {
   id: string;
-  guild_id?: string;
-  parent_id?: string | null;
   name?: string;
   type: number;
+  last_message_id?: string | null;
 }
 
 export interface DiscordThreadList {
@@ -44,7 +43,6 @@ export interface DiscordThreadList {
 }
 
 export interface LatestOccurrence {
-  id: string;
   channelId: string;
   channelName: string;
   authorName: string;
@@ -55,6 +53,31 @@ export interface LatestOccurrence {
 export type ExtractionStatus = "pending" | "indexed" | "failed";
 export type JobStatus = "pending" | "processing" | "completed" | "failed";
 export type JobPriority = "live" | "history";
+
+export type ExtractionFailureClass =
+  | "invalid_url" | "private_address" | "dns_failure" | "timeout" | "redirect_limit"
+  | "http_error" | "bot_block" | "non_html" | "body_too_large" | "malformed_html"
+  | "insufficient_content" | "network_error";
+
+/** A successful extraction, as returned by the extractor and stored on the article. */
+export interface ExtractedArticle {
+  title: string | null;
+  body: string;
+  excerpt: string;
+  method: "readability" | "json-ld" | "metadata";
+  httpStatus: number;
+  contentLength: number;
+  hostname: string;
+}
+
+/** A failed extraction, as stored on the article and its job. */
+export interface ExtractionFailure {
+  failureClass: ExtractionFailureClass;
+  message: string;
+  httpStatus: number | null;
+  contentLength: number | null;
+  hostname: string;
+}
 
 export interface ArticleDocument {
   normalizedUrl: string;
@@ -68,7 +91,6 @@ export interface ArticleDocument {
   extractionHttpStatus: number | null;
   extractionContentLength: number | null;
   extractionHostname: string;
-  firstPostedAt: string;
   lastPostedAt: string;
   latestOccurrence: LatestOccurrence;
   createdAt: string;
@@ -86,19 +108,17 @@ export interface ExtractionJobDocument {
   updatedAt: string;
 }
 
+/**
+ * One Discord channel or thread. `liveAfterId` walks forward from the newest seen message;
+ * `backfillBeforeId` walks backward through history until `backfillComplete`.
+ */
 export interface ChannelCursorDocument {
   channelId: string;
-  guildId: string;
-  parentId: string | null;
   channelName: string;
   isThread: boolean;
-  liveAfterId: string | null;
+  archived: boolean;
+  liveAfterId: string;
   backfillBeforeId: string | null;
   backfillComplete: boolean;
-  initialized: boolean;
   updatedAt: string;
-}
-
-export interface ExtractionTaskPayload {
-  articleId: string;
 }

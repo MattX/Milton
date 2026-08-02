@@ -7,11 +7,14 @@ The service fetches server-rendered HTML directly. Mozilla Readability is tried 
 ## Architecture
 
 - Cloud Scheduler invokes the OIDC-protected `/internal/poll` endpoint every five minutes.
-- Discord cursors are persisted per channel. Existing history is read in resumable 100-message pages; live cursors advance only after message persistence succeeds.
-- Firestore collections are `articles`, `occurrences`, `discordCursors`, `extractionJobs`, and `systemState`. Article IDs and occurrence IDs are deterministic SHA-256 values, making redelivery idempotent.
+- Discord cursors are persisted per channel and seeded from the channel's `last_message_id`, so live polling starts at the present and everything behind that boundary belongs to the backfill. Live cursors advance only after message persistence succeeds, and history is read in resumable 100-message pages.
+- Threads that stop being active are marked archived rather than deleted: they keep their history and stay eligible for backfill, but are no longer polled for new messages. Each polled channel also contributes its archived public threads.
+- Firestore collections are `articles`, `discordCursors`, `extractionJobs`, and `systemState`. Article IDs are deterministic SHA-256 values, making redelivery idempotent.
 - Each article embeds its latest Discord occurrence, so search results require no join.
 - `milton-live-extraction` and `milton-history-extraction` are independent Cloud Tasks queues. Live reposts can promote pending historical jobs.
-- Extraction uses a 15-second timeout, no more than five redirects, a 2 MiB response cap, HTML content-type checks, DNS pinning, and rejection of every hostname that resolves to any non-public address.
+- A claimed extraction job holds a two-minute lease. A delivery that finds a live lease asks for redelivery instead of acknowledging work that may never have happened, and each poll requeues jobs whose worker died holding one.
+- Extraction enforces a 15-second wall-clock budget across DNS, redirects, and the body read, plus no more than five redirects, a 2 MiB response cap, HTML content-type checks, DNS pinning, and rejection of every hostname that resolves to any non-public address.
+- Pages are decoded using their declared charset, not assumed to be UTF-8.
 - Bodies are capped at 32 KiB. Extraction method, hostname, status, content length, and failure class are stored with the article.
 - Discord OAuth sessions last eight hours and require current membership in the configured guild.
 - Google-signed ID tokens are verified again in the app for `/internal/*`; only the configured scheduler and task service accounts are accepted.
@@ -95,7 +98,7 @@ Subsequent deployments need only `npm run deploy`. Rotate a credential explicitl
 
 Terraform owns the named `milton` Enterprise database with Firestore Native access explicitly enabled and MongoDB-compatible access disabled, all indexes, Artifact Registry, Cloud Run, queues, service accounts, IAM, secret containers, Scheduler, and the $1 monthly budget. Secret payloads never enter Terraform state or version control. State is local under `infra/` by default; configure a GCS backend before using this as a multi-operator deployment.
 
-Cloud Run uses request-based billing, 1 vCPU, 1 GiB RAM, zero minimum/two maximum instances, concurrency 20, and a 60-second timeout. Enterprise rejects the `(default)` database ID, so Milton uses the named database `milton`.
+Cloud Run uses request-based billing, 1 vCPU, 1 GiB RAM, zero minimum/two maximum instances, concurrency 20, and a 300-second timeout that accommodates a full poll. Enterprise rejects the `(default)` database ID, so Milton uses the named database `milton`.
 
 The current Google Terraform provider provisions the preview text index over `title`, `domain`, and `body`. If the preview API rejects that resource in a future project, use the console fallback: Firestore → `milton` → Indexes, create one **Text** index for collection `articles`, query scope **Collection**, and those same three fields.
 
@@ -119,8 +122,9 @@ Sign in as a configured administrator and select **Start historical backfill**. 
 
 ## Operations and acceptance
 
-- A URL repost creates another occurrence without duplicating the article or extraction job.
-- Cloud Tasks names are deterministic, claims are transactional, and temporary failures retry up to three deliveries. Permanent failures become link-only records immediately.
+- A URL repost updates the article's latest occurrence without duplicating the article or extraction job.
+- Cloud Tasks names are deterministic, claims are transactional, and temporary failures retry up to three extraction attempts across five deliveries. Permanent failures become link-only records immediately.
+- Link-only records are not retried automatically. Sign in as an administrator and select **Retry failed extractions** to requeue them, for example after fixing an outage that failed a batch.
 - Review `extractionFailureClass` grouped by `extractionHostname` after the backfill. Test a browser on a representative 20-URL sample only if at least 20 useful JS-only failures, or more than 10% of useful links, fail HTTP extraction.
 - Verify representative phrase, exclusion, Unicode, and relevance searches; conversation backlinks; OAuth rejection outside the guild; cursor resumption; and discovery within roughly five minutes.
 - The two-instance cap and queue dispatch limits bound load. The $1 budget is an alert, not a hard spending cap.

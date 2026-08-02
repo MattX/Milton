@@ -35,11 +35,8 @@ resource "google_firestore_database" "milton" {
 }
 
 locals {
+  # Only composite indexes belong here: Firestore maintains single-field indexes automatically.
   firestore_indexes = {
-    articles_recent = {
-      collection = "articles"
-      fields     = [{ path = "lastPostedAt", order = "DESCENDING" }]
-    }
     jobs_priority_status = {
       collection = "extractionJobs"
       fields = [
@@ -47,26 +44,30 @@ locals {
         { path = "status", order = "ASCENDING" },
       ]
     }
-    jobs_status = {
+    jobs_stalled = {
       collection = "extractionJobs"
-      fields     = [{ path = "status", order = "ASCENDING" }]
+      fields = [
+        { path = "status", order = "ASCENDING" },
+        { path = "processingStartedAt", order = "ASCENDING" },
+      ]
     }
-    cursors_updated = {
+    cursors_live = {
       collection = "discordCursors"
-      fields     = [{ path = "updatedAt", order = "ASCENDING" }]
+      fields = [
+        { path = "archived", order = "ASCENDING" },
+        { path = "updatedAt", order = "ASCENDING" },
+      ]
     }
-    cursors_threads = {
+    cursors_live_threads = {
       collection = "discordCursors"
-      fields     = [{ path = "isThread", order = "ASCENDING" }]
-    }
-    cursors_complete = {
-      collection = "discordCursors"
-      fields     = [{ path = "backfillComplete", order = "ASCENDING" }]
+      fields = [
+        { path = "isThread", order = "ASCENDING" },
+        { path = "archived", order = "ASCENDING" },
+      ]
     }
     cursors_backfill = {
       collection = "discordCursors"
       fields = [
-        { path = "initialized", order = "ASCENDING" },
         { path = "backfillComplete", order = "ASCENDING" },
         { path = "updatedAt", order = "ASCENDING" },
       ]
@@ -162,10 +163,12 @@ resource "google_cloud_tasks_queue" "live" {
     max_concurrent_dispatches = 2
     max_dispatches_per_second = 2
   }
+  # Three deliveries do the extraction work; the extra two cover deliveries that find the job's
+  # lease still held, which must outlast the lease for a dead worker's job to be reclaimed.
   retry_config {
-    max_attempts  = 3
+    max_attempts  = 5
     min_backoff   = "30s"
-    max_backoff   = "300s"
+    max_backoff   = "600s"
     max_doublings = 3
   }
   depends_on = [google_project_service.apis]
@@ -179,7 +182,7 @@ resource "google_cloud_tasks_queue" "history" {
     max_dispatches_per_second = 1
   }
   retry_config {
-    max_attempts  = 3
+    max_attempts  = 5
     min_backoff   = "60s"
     max_backoff   = "600s"
     max_doublings = 3
@@ -205,8 +208,10 @@ resource "google_cloud_run_v2_service" "milton" {
   deletion_protection = true
 
   template {
-    service_account                  = google_service_account.runtime.email
-    timeout                          = "60s"
+    service_account = google_service_account.runtime.email
+    # One poll walks several channels and their message pages, so it needs more than a page-load
+    # budget. POLL_BUDGET_MS in server/discord.ts keeps a run comfortably inside this.
+    timeout                          = "300s"
     max_instance_request_concurrency = 20
     execution_environment            = "EXECUTION_ENVIRONMENT_GEN2"
 
@@ -291,7 +296,7 @@ resource "google_cloud_scheduler_job" "poll" {
   description      = "Discover new Discord links every five minutes"
   schedule         = "*/5 * * * *"
   time_zone        = "Etc/UTC"
-  attempt_deadline = "60s"
+  attempt_deadline = "300s"
 
   http_target {
     uri         = "${local.service_url}/internal/poll"
