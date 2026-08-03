@@ -82,13 +82,7 @@ export default function App() {
   return (
     <div className="page-shell">
       <header className="site-header">
-        <a className="brand" href="/" aria-label="Milton home">
-          <span className="brand-mark">M</span>
-          <span>
-            <strong>Milton</strong>
-            <small>the shared-link index</small>
-          </span>
-        </a>
+        <a className="brand" href="/">Milton</a>
         <div className="identity">
           {session.user.avatarUrl
             ? <img src={session.user.avatarUrl} alt="" />
@@ -100,8 +94,6 @@ export default function App() {
 
       <main>
         <section className="search-hero">
-          <p className="eyebrow">Your Discord, remembered</p>
-          <h1>Find the thing someone shared.</h1>
           <form className="search-form" onSubmit={submitSearch}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z" /></svg>
             <input
@@ -118,7 +110,7 @@ export default function App() {
         <section className="results-section">
           <div className="section-heading">
             <h2>{submittedQuery ? `Results for “${submittedQuery}”` : "Recently shared"}</h2>
-            {results && pending !== "search" && <span>Showing {results.items.length} links</span>}
+            {results && pending !== "search" && <span>{results.items.length} links</span>}
           </div>
           {error && <div className="notice error">{error}</div>}
           {pending === "search" ? <ResultSkeletons /> : (
@@ -130,7 +122,6 @@ export default function App() {
             <div className="empty-state">
               <span>⌕</span>
               <h3>No links found</h3>
-              <p>Try fewer words or a different spelling.</p>
             </div>
           )}
           {results?.nextCursor && pending !== "search" && (
@@ -147,7 +138,6 @@ export default function App() {
         {session.user.isAdmin && <AdminPanel />}
       </main>
 
-      <footer>Indexed from Discord · Search stays inside the community</footer>
     </div>
   );
 }
@@ -163,14 +153,13 @@ function ResultCard({ result }: { result: ArticleResult }) {
       <h3><a href={result.url} target="_blank" rel="noreferrer">{result.title}</a></h3>
       {result.excerpt && <p className="excerpt">{result.excerpt}</p>}
       <div className="result-actions">
-        <a className="article-link" href={result.url} target="_blank" rel="noreferrer">Read article ↗</a>
         <a className="discussion-link" href={result.latestOccurrence.messageUrl} target="_blank" rel="noreferrer">
-          Open discussion ↗
+          Discussion ↗
         </a>
+        <span className="shared-by">
+          {result.latestOccurrence.authorName} · #{result.latestOccurrence.channelName} · {relativeDate(result.latestOccurrence.postedAt)}
+        </span>
       </div>
-      <p className="shared-by">
-        Shared by {result.latestOccurrence.authorName} in #{result.latestOccurrence.channelName} · {relativeDate(result.latestOccurrence.postedAt)}
-      </p>
     </article>
   );
 }
@@ -206,7 +195,7 @@ function AdminPanel() {
   return (
     <section className="admin-panel">
       <div className="section-heading">
-        <div><p className="eyebrow">Administrator</p><h2>Indexer status</h2></div>
+        <h2>Indexer status</h2>
         <button className="text-button" onClick={() => void refresh()}>Refresh</button>
       </div>
       {error && <div className="notice error">{error}</div>}
@@ -245,19 +234,19 @@ function Metric({ label, value, warning = false }: { label: string; value: strin
 function LoginScreen({ error }: { error: string | null }) {
   return (
     <main className="login-screen">
+      <span className="screen-brand">Milton</span>
       <div className="login-card">
         {error && <div className="notice error">{error}</div>}
         <a className="discord-button" href="/auth/discord">
           <span aria-hidden="true">◖◗</span> Continue with Discord
         </a>
-        <small>Access is limited to current server members.</small>
       </div>
     </main>
   );
 }
 
 function LoadingScreen() {
-  return <main className="loading-screen"><span className="large-mark pulse">M</span></main>;
+  return <main className="loading-screen"><span className="screen-brand pulse">Milton</span></main>;
 }
 
 function ResultSkeletons() {
