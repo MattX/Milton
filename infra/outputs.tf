@@ -5,3 +5,4 @@ output "scheduler_service_account" { value = google_service_account.scheduler.em
 output "artifact_repository" { value = google_artifact_registry_repository.milton.name }
 output "service_url" { value = local.service_url }
 output "oauth_callback_url" { value = "${local.service_url}/auth/callback" }
+output "discord_interactions_url" { value = "${local.service_url}/discord/interactions" }

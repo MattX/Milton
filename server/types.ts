@@ -5,14 +5,19 @@ export interface Config {
   serviceUrl: string;
   liveTaskQueue: string;
   historyTaskQueue: string;
+  commandTaskQueue: string;
   taskServiceAccount: string;
   internalServiceAccounts: Set<string>;
   discordApplicationId: string;
   discordClientSecret: string;
   discordBotToken: string;
   discordGuildId: string;
+  discordPublicKey: string;
   adminDiscordUserIds: Set<string>;
   sessionSecret: string;
+  openRouterApiKey: string;
+  openRouterModel: string;
+  openRouterReasoningEffort: "max" | "xhigh" | "high" | "medium" | "low" | "minimal" | "none";
   allowUnauthenticatedInternal: boolean;
 }
 
@@ -97,6 +102,19 @@ export interface ArticleDocument {
   latestOccurrence: LatestOccurrence;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface RecentArticle {
+  id: string;
+  data: ArticleDocument;
+}
+
+export interface DigestTaskPayload {
+  interactionId: string;
+  interactionToken: string;
+  userId: string;
+  days: number;
+  invokedAt: string;
 }
 
 export interface ExtractionJobDocument {

@@ -197,8 +197,24 @@ resource "google_cloud_tasks_queue" "history" {
   depends_on = [google_project_service.apis]
 }
 
+resource "google_cloud_tasks_queue" "commands" {
+  project  = data.google_project.milton.project_id
+  name     = "milton-commands"
+  location = var.region
+  rate_limits {
+    max_concurrent_dispatches = 10
+    max_dispatches_per_second = 2
+  }
+  # Digest workers catch provider failures and publish a useful fallback. A platform retry could
+  # duplicate the public follow-up messages, so interactive commands receive one delivery.
+  retry_config {
+    max_attempts = 1
+  }
+  depends_on = [google_project_service.apis]
+}
+
 resource "google_secret_manager_secret" "credentials" {
-  for_each  = toset(["discord-client-secret", "discord-bot-token", "session-secret"])
+  for_each  = toset(["discord-client-secret", "discord-bot-token", "session-secret", "openrouter-api-key"])
   project   = data.google_project.milton.project_id
   secret_id = each.value
   replication {
@@ -245,17 +261,21 @@ resource "google_cloud_run_v2_service" "milton" {
 
       dynamic "env" {
         for_each = {
-          GOOGLE_CLOUD_PROJECT      = data.google_project.milton.project_id
-          FIRESTORE_DATABASE_ID     = google_firestore_database.milton.name
-          GOOGLE_CLOUD_LOCATION     = var.region
-          SERVICE_URL               = local.service_url
-          LIVE_TASK_QUEUE           = google_cloud_tasks_queue.live.name
-          HISTORY_TASK_QUEUE        = google_cloud_tasks_queue.history.name
-          TASK_SERVICE_ACCOUNT      = google_service_account.tasks.email
-          INTERNAL_SERVICE_ACCOUNTS = "${google_service_account.tasks.email},${google_service_account.scheduler.email}"
-          DISCORD_APPLICATION_ID    = var.discord_application_id
-          DISCORD_GUILD_ID          = var.discord_guild_id
-          ADMIN_DISCORD_USER_IDS    = var.admin_discord_user_ids
+          GOOGLE_CLOUD_PROJECT        = data.google_project.milton.project_id
+          FIRESTORE_DATABASE_ID       = google_firestore_database.milton.name
+          GOOGLE_CLOUD_LOCATION       = var.region
+          SERVICE_URL                 = local.service_url
+          LIVE_TASK_QUEUE             = google_cloud_tasks_queue.live.name
+          HISTORY_TASK_QUEUE          = google_cloud_tasks_queue.history.name
+          COMMAND_TASK_QUEUE          = google_cloud_tasks_queue.commands.name
+          TASK_SERVICE_ACCOUNT        = google_service_account.tasks.email
+          INTERNAL_SERVICE_ACCOUNTS   = "${google_service_account.tasks.email},${google_service_account.scheduler.email}"
+          DISCORD_APPLICATION_ID      = var.discord_application_id
+          DISCORD_GUILD_ID            = var.discord_guild_id
+          DISCORD_PUBLIC_KEY          = var.discord_public_key
+          ADMIN_DISCORD_USER_IDS      = var.admin_discord_user_ids
+          OPENROUTER_MODEL            = var.openrouter_model
+          OPENROUTER_REASONING_EFFORT = var.openrouter_reasoning_effort
         }
         content {
           name  = env.key
@@ -268,6 +288,7 @@ resource "google_cloud_run_v2_service" "milton" {
           DISCORD_CLIENT_SECRET = google_secret_manager_secret.credentials["discord-client-secret"].secret_id
           DISCORD_BOT_TOKEN     = google_secret_manager_secret.credentials["discord-bot-token"].secret_id
           SESSION_SECRET        = google_secret_manager_secret.credentials["session-secret"].secret_id
+          OPENROUTER_API_KEY    = google_secret_manager_secret.credentials["openrouter-api-key"].secret_id
         }
         content {
           name = env.key

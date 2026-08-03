@@ -16,6 +16,7 @@ set +a
 : "${TF_VAR_billing_account:?Set TF_VAR_billing_account in ${deploy_env_file}}"
 : "${TF_VAR_discord_application_id:?Set TF_VAR_discord_application_id in ${deploy_env_file}}"
 : "${TF_VAR_discord_guild_id:?Set TF_VAR_discord_guild_id in ${deploy_env_file}}"
+: "${TF_VAR_discord_public_key:?Set TF_VAR_discord_public_key in ${deploy_env_file}}"
 : "${TF_VAR_admin_discord_user_ids:?Set TF_VAR_admin_discord_user_ids in ${deploy_env_file}}"
 
 TF_VAR_region="${TF_VAR_region:-us-central1}"
@@ -28,4 +29,4 @@ terraform -chdir=infra apply -auto-approve \
   -target=google_artifact_registry_repository.milton \
   -target=google_secret_manager_secret.credentials
 
-echo "Bootstrap complete. Install the three secret versions before deploying."
+echo "Bootstrap complete. Install the four secret versions before deploying."

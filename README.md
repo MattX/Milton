@@ -1,6 +1,6 @@
 # Milton
 
-Milton is a private full-text search engine for links shared in Discord. It runs as one Node/TypeScript service on Cloud Run, stores its reconstructible index in Firestore Enterprise (Native mode), and sends extraction work through separate live and historical Cloud Tasks queues.
+Milton is a private full-text search engine for links shared in Discord. It runs as one Node/TypeScript service on Cloud Run, stores its reconstructible index in Firestore Enterprise (Native mode), and sends extraction and interactive command work through Cloud Tasks queues.
 
 The service fetches server-rendered HTML directly. Mozilla Readability is tried first, followed by JSON-LD `articleBody` and OpenGraph/description metadata. A failed extraction remains a searchable title/domain/link record with its Discord backlink and a structured failure class. Chrome is intentionally not part of the initial deployment.
 
@@ -9,9 +9,10 @@ The service fetches server-rendered HTML directly. Mozilla Readability is tried 
 - Cloud Scheduler invokes the OIDC-protected `/internal/poll` endpoint every five minutes.
 - Discord cursors are persisted per channel and seeded from the channel's `last_message_id`, so live polling starts at the present and everything behind that boundary belongs to the backfill. Live cursors advance only after message persistence succeeds, and history is read in resumable 100-message pages.
 - Threads that stop being active are marked archived rather than deleted: they keep their history and stay eligible for backfill, but are no longer polled for new messages. Each polled channel also contributes its archived public threads.
-- Firestore collections are `articles`, `discordCursors`, `extractionJobs`, and `systemState`. Article IDs are deterministic SHA-256 values, making redelivery idempotent.
+- Firestore collections are `articles`, `discordCursors`, `extractionJobs`, `systemState`, and short-lived `commandLocks`. Article IDs are deterministic SHA-256 values, making redelivery idempotent.
 - Each article embeds its latest Discord occurrence, so search results require no join.
 - `milton-live-extraction` and `milton-history-extraction` are independent Cloud Tasks queues. Live reposts can promote pending historical jobs.
+- Signed Discord interactions are deferred into `milton-commands` and completed through interaction webhooks. `/digest` summarizes up to the newest 25 server-wide links from a rolling number of days.
 - A claimed extraction job holds a two-minute lease. A delivery that finds a live lease asks for redelivery instead of acknowledging work that may never have happened, and each poll requeues jobs whose worker died holding one.
 - Extraction enforces a 15-second wall-clock budget across DNS, redirects, and the body read, plus no more than five redirects, a 2 MiB response cap, HTML content-type checks, DNS pinning, and rejection of every hostname that resolves to any non-public address.
 - Pages are decoded using their declared charset, not assumed to be UTF-8.
@@ -22,7 +23,7 @@ The service fetches server-rendered HTML directly. Mozilla Readability is tried 
 
 ## Local development
 
-Requirements are Node.js 22 or newer and Application Default Credentials with Firestore/Cloud Tasks access. Copy `.env.example` to `.env`, install dependencies, then run the API and UI in separate terminals:
+Requirements are Node.js 22 or newer, Application Default Credentials with Firestore/Cloud Tasks access, and an OpenRouter API key. Copy `.env.example` to `.env`, install dependencies, then run the API and UI in separate terminals:
 
 ```sh
 npm install
@@ -54,6 +55,7 @@ Prerequisites:
 - An existing dedicated GCP project with billing attached. Project creation and billing attachment deliberately remain outside this Terraform stack.
 - A Google account allowed to administer that project and create a budget on its billing account.
 - A Discord application, bot token, and OAuth client secret.
+- An OpenRouter account and API key with an appropriate spend limit. The GCP budget does not cover OpenRouter usage.
 
 Authenticate both the Google Cloud CLI and Terraform's Application Default Credentials:
 
@@ -84,6 +86,7 @@ set +a
 
 bash -c 'read -r -s -p "Discord OAuth client secret: " value; echo; printf %s "$value" | gcloud secrets versions add discord-client-secret --project "$TF_VAR_project_id" --data-file=-'
 bash -c 'read -r -s -p "Discord bot token: " value; echo; printf %s "$value" | gcloud secrets versions add discord-bot-token --project "$TF_VAR_project_id" --data-file=-'
+bash -c 'read -r -s -p "OpenRouter API key: " value; echo; printf %s "$value" | gcloud secrets versions add openrouter-api-key --project "$TF_VAR_project_id" --data-file=-'
 openssl rand -base64 48 | gcloud secrets versions add session-secret --project "$TF_VAR_project_id" --data-file=-
 ```
 
@@ -93,7 +96,7 @@ Then deploy the application:
 npm run deploy
 ```
 
-The deploy command verifies that all three secrets have an enabled version, builds a uniquely tagged image with Cloud Build, runs the full Terraform apply, and prints the service URL. It never reads, creates, or rotates secret payloads.
+The deploy command verifies that all four secrets have an enabled version, builds a uniquely tagged image with Cloud Build, runs the full Terraform apply, and prints the service URL. It never reads, creates, or rotates secret payloads.
 
 Subsequent deployments need only `npm run deploy`. Rotate a credential explicitly by rerunning its `gcloud secrets versions add` command and then deploying a new revision. Rotating `session-secret` signs all users out.
 
@@ -108,15 +111,16 @@ The current Google Terraform provider provisions the preview text index over `ti
 In the Discord Developer Portal:
 
 1. Under **OAuth2 → General → Redirects**, add the exact Terraform `oauth_callback_url` output. Discord requires an exact match, including `https` and `/auth/callback`.
-2. No user OAuth scopes need to be preconfigured in the portal. Milton's login route requests `identify` and `guilds.members.read`; the latter is used only to confirm membership in the configured guild.
-3. Under **Bot → Privileged Gateway Intents**, enable **Message Content Intent**. Do not enable Server Members or Presence intents for Milton.
-4. Install the bot to the guild with the `bot` scope and only **View Channels** plus **Read Message History** (permission bitfield `66560`). No slash-command, send-message, manage-server, or administrator permission is required.
-5. Use per-channel permission overrides if Milton should index only part of the guild.
+2. Under **General Information**, copy the application public key into `TF_VAR_discord_public_key`, deploy, then set **Interactions Endpoint URL** to the Terraform `discord_interactions_url` output. Discord validates the signed `PING` endpoint when it is saved.
+3. No user OAuth scopes need to be preconfigured in the portal. Milton's login route requests `identify` and `guilds.members.read`; the latter is used only to confirm membership in the configured guild.
+4. Under **Bot → Privileged Gateway Intents**, enable **Message Content Intent**. Do not enable Server Members or Presence intents for Milton.
+5. Install or reauthorize the bot with the `bot applications.commands` scopes and only **View Channels**, **Send Messages**, **Embed Links**, and **Read Message History** (permission bitfield `84992`).
+6. Use per-channel permission overrides if Milton should index or respond in only part of the guild.
 
 The minimal guild-install URL is:
 
 ```text
-https://discord.com/oauth2/authorize?client_id=YOUR_APPLICATION_ID&permissions=66560&integration_type=0&scope=bot
+https://discord.com/oauth2/authorize?client_id=YOUR_APPLICATION_ID&permissions=84992&integration_type=0&scope=bot%20applications.commands
 ```
 
 Sign in as a configured administrator and select **Start historical backfill**. No old Datastore, D1, Turso, or Algolia migration is expected: Discord history is the source of truth.
@@ -128,4 +132,5 @@ Sign in as a configured administrator and select **Start historical backfill**. 
 - Link-only records are not retried automatically. Sign in as an administrator and select **Retry failed extractions** to requeue them, for example after fixing an outage that failed a batch.
 - Review `extractionFailureClass` grouped by `extractionHostname` after the backfill. Test a browser on a representative 20-URL sample only if at least 20 useful JS-only failures, or more than 10% of useful links, fail HTTP extraction.
 - Verify representative phrase, exclusion, Unicode, and relevance searches; conversation backlinks; OAuth rejection outside the guild; cursor resumption; and discovery within roughly five minutes.
+- Run `/digest` with its seven-day default and an explicit `days` value. Verify that the public response contains no more than the newest 25 links, continues across at most three messages, and falls back to excerpts when OpenRouter is unavailable.
 - The two-instance cap and queue dispatch limits bound load. The $1 budget is an alert, not a hard spending cap.

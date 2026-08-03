@@ -16,6 +16,7 @@ set +a
 : "${TF_VAR_billing_account:?Set TF_VAR_billing_account in ${deploy_env_file}}"
 : "${TF_VAR_discord_application_id:?Set TF_VAR_discord_application_id in ${deploy_env_file}}"
 : "${TF_VAR_discord_guild_id:?Set TF_VAR_discord_guild_id in ${deploy_env_file}}"
+: "${TF_VAR_discord_public_key:?Set TF_VAR_discord_public_key in ${deploy_env_file}}"
 : "${TF_VAR_admin_discord_user_ids:?Set TF_VAR_admin_discord_user_ids in ${deploy_env_file}}"
 
 TF_VAR_region="${TF_VAR_region:-us-central1}"
@@ -34,7 +35,7 @@ secret_has_version() {
     --format='value(name)')" ]]
 }
 
-for secret_name in discord-client-secret discord-bot-token session-secret; do
+for secret_name in discord-client-secret discord-bot-token session-secret openrouter-api-key; do
   if ! secret_has_version "$secret_name"; then
     echo "Secret ${secret_name} has no enabled version. Run the manual secret setup in README.md." >&2
     exit 1
@@ -45,3 +46,4 @@ gcloud builds submit --project "$TF_VAR_project_id" --tag "$TF_VAR_container_ima
 terraform -chdir=infra apply -auto-approve
 
 echo "Milton deployed at $(terraform -chdir=infra output -raw service_url)"
+echo "Discord interactions endpoint: $(terraform -chdir=infra output -raw discord_interactions_url)"

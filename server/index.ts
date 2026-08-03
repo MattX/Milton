@@ -6,24 +6,49 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { beginDiscordLogin, finishDiscordLogin, getSession, logout, requireInternal } from "./auth.js";
 import { loadConfig } from "./config.js";
 import { mapConcurrent } from "./concurrency.js";
+import { DigestService, DiscordWebhookResponder } from "./digest.js";
 import { DiscordIngestion } from "./discord.js";
+import { DiscordCommands } from "./discord-commands.js";
 import { ExtractionService } from "./extraction-service.js";
+import { OpenRouterSummarizer } from "./openrouter.js";
 import { FirestoreRepository } from "./repository.js";
-import { CloudTaskEnqueuer, retryToken } from "./tasks.js";
+import { CloudCommandTaskEnqueuer, CloudTaskEnqueuer, retryToken } from "./tasks.js";
+import type { DigestTaskPayload } from "./types.js";
 
 const RETRY_JOBS_PER_REQUEST = 200;
 
 const config = loadConfig();
 const firestore = new Firestore({ projectId: config.projectId, databaseId: config.firestoreDatabaseId });
 const repository = new FirestoreRepository(firestore, config.discordGuildId);
-const taskEnqueuer = new CloudTaskEnqueuer(new CloudTasksClient(), config);
+const tasksClient = new CloudTasksClient();
+const taskEnqueuer = new CloudTaskEnqueuer(tasksClient, config);
+const commandTaskEnqueuer = new CloudCommandTaskEnqueuer(tasksClient, config);
 const ingestion = new DiscordIngestion(repository, taskEnqueuer, config);
 const extraction = new ExtractionService(repository);
+const commands = new DiscordCommands(commandTaskEnqueuer, config);
+const digest = new DigestService(
+  repository,
+  new OpenRouterSummarizer(config),
+  new DiscordWebhookResponder(config.discordApplicationId),
+  config,
+);
 
 // Express 5 forwards rejected promises from handlers to the error middleware below, so async
 // handlers need no try/catch of their own.
 const app = express();
 app.set("trust proxy", 1);
+app.post("/discord/interactions", express.raw({ type: "application/json", limit: "16kb" }), async (request, response) => {
+  if (!Buffer.isBuffer(request.body)) {
+    response.status(400).json({ error: "invalid_body" });
+    return;
+  }
+  const result = await commands.handle(request.body, {
+    signature: request.get("x-signature-ed25519") || undefined,
+    timestamp: request.get("x-signature-timestamp") || undefined,
+  });
+  if (result.body === undefined) response.status(result.status).end();
+  else response.status(result.status).json(result.body);
+});
 app.use(express.json({ limit: "16kb" }));
 
 app.get("/api/health", (_request, response) => response.json({ ok: true }));
@@ -36,6 +61,11 @@ app.get("/auth/callback", (request, response) => finishDiscordLogin(request, res
 app.post("/auth/logout", logout(config));
 
 app.post("/internal/poll", requireInternal(config), async (_request, response) => {
+  try {
+    await commands.ensureRegistered();
+  } catch (error) {
+    console.error("Discord command registration failed", error);
+  }
   await ingestion.run();
   response.status(204).end();
 });
@@ -48,6 +78,15 @@ app.post("/internal/extract", requireInternal(config), async (request, response)
   // A 503 asks Cloud Tasks to redeliver; anything else would drop the job for good.
   if (await extraction.run(articleId)) response.status(503).json({ error: "extraction_retry" });
   else response.status(204).end();
+});
+app.post("/internal/commands/digest", requireInternal(config), async (request, response) => {
+  const payload = digestPayload(request.body);
+  if (!payload) {
+    response.status(400).json({ error: "invalid_digest_task" });
+    return;
+  }
+  await digest.run(payload);
+  response.status(204).end();
 });
 
 app.use("/api", requireSession);
@@ -102,5 +141,21 @@ function stringQuery(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+function digestPayload(value: unknown): DigestTaskPayload | null {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Partial<DigestTaskPayload>;
+  if (!snowflake(payload.interactionId) || !snowflake(payload.userId) || typeof payload.interactionToken !== "string"
+    || !payload.interactionToken || typeof payload.days !== "number" || !Number.isSafeInteger(payload.days) || payload.days <= 0
+    || typeof payload.invokedAt !== "string" || !Number.isFinite(Date.parse(payload.invokedAt))) return null;
+  return payload as DigestTaskPayload;
+}
+
+function snowflake(value: unknown): value is string {
+  return typeof value === "string" && /^\d{1,20}$/.test(value);
+}
+
 const port = Number(process.env.PORT || 8080);
-app.listen(port, "0.0.0.0", () => console.log(`Milton listening on ${port}`));
+app.listen(port, "0.0.0.0", () => {
+  console.log(`Milton listening on ${port}`);
+  void commands.ensureRegistered().catch((error) => console.error("Discord command registration failed", error));
+});

@@ -13,6 +13,7 @@ import type {
   ExtractionJobDocument,
   JobPriority,
   LatestOccurrence,
+  RecentArticle,
 } from "./types.js";
 import { extractLinks, fallbackTitle, type NormalizedLink } from "./urls.js";
 
@@ -49,6 +50,9 @@ export interface QueuedJob {
 export interface Repository {
   persistDiscordMessages(messages: DiscordMessage[], channelName: string, priority: JobPriority): Promise<string[]>;
   search(query: string, cursor: string | null): Promise<SearchResponse>;
+  listRecentArticles(since: string | null, limit: number): Promise<{ items: RecentArticle[]; total: number }>;
+  claimCommandLock(lockId: string, ownerId: string, expiresAt: string): Promise<boolean>;
+  releaseCommandLock(lockId: string, ownerId: string): Promise<void>;
   getAdminStatus(): Promise<AdminStatus>;
   setBackfillEnabled(enabled: boolean): Promise<void>;
   isBackfillEnabled(): Promise<boolean>;
@@ -165,6 +169,38 @@ export class FirestoreRepository implements Repository {
       rows = snapshot.docs.map((doc) => ({ id: doc.id, data: doc.data() as ArticleDocument }));
     }
     return mapSearchPage(rows, offset);
+  }
+
+  async listRecentArticles(since: string | null, limit: number): Promise<{ items: RecentArticle[]; total: number }> {
+    const base = since
+      ? this.db.collection("articles").where("lastPostedAt", ">=", since)
+      : this.db.collection("articles");
+    const [snapshot, count] = await Promise.all([
+      base.orderBy("lastPostedAt", "desc").limit(limit).get(),
+      base.count().get(),
+    ]);
+    return {
+      items: snapshot.docs.map((doc) => ({ id: doc.id, data: doc.data() as ArticleDocument })),
+      total: count.data().count,
+    };
+  }
+
+  async claimCommandLock(lockId: string, ownerId: string, expiresAt: string): Promise<boolean> {
+    const ref = this.db.collection("commandLocks").doc(lockId);
+    return this.db.runTransaction(async (transaction) => {
+      const current = (await transaction.get(ref)).data() as { ownerId?: string; expiresAt?: string } | undefined;
+      if (current?.ownerId !== ownerId && current?.expiresAt && current.expiresAt > new Date().toISOString()) return false;
+      transaction.set(ref, { ownerId, expiresAt, updatedAt: new Date().toISOString() });
+      return true;
+    });
+  }
+
+  async releaseCommandLock(lockId: string, ownerId: string): Promise<void> {
+    const ref = this.db.collection("commandLocks").doc(lockId);
+    await this.db.runTransaction(async (transaction) => {
+      const current = (await transaction.get(ref)).data() as { ownerId?: string } | undefined;
+      if (current?.ownerId === ownerId) transaction.delete(ref);
+    });
   }
 
   async getAdminStatus(): Promise<AdminStatus> {

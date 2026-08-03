@@ -29,6 +29,28 @@ describe("extraction job recovery", () => {
   });
 });
 
+describe("recent articles", () => {
+  it("counts the rolling window and returns newest articles first", async () => {
+    const where = vi.fn().mockReturnThis();
+    const orderBy = vi.fn().mockReturnThis();
+    const limit = vi.fn().mockReturnThis();
+    const get = vi.fn().mockResolvedValue({
+      docs: [{ id: "newest", data: () => ({ title: "Newest" }) }],
+    });
+    const countGet = vi.fn().mockResolvedValue({ data: () => ({ count: 4 }) });
+    const query = { where, orderBy, limit, get, count: vi.fn(() => ({ get: countGet })) };
+    const db = { collection: vi.fn(() => query) } as unknown as Firestore;
+
+    const result = await new FirestoreRepository(db, "guild")
+      .listRecentArticles("2026-07-27T12:00:00.000Z", 25);
+
+    expect(where).toHaveBeenCalledWith("lastPostedAt", ">=", "2026-07-27T12:00:00.000Z");
+    expect(orderBy).toHaveBeenCalledWith("lastPostedAt", "desc");
+    expect(limit).toHaveBeenCalledWith(25);
+    expect(result).toEqual({ items: [{ id: "newest", data: { title: "Newest" } }], total: 4 });
+  });
+});
+
 function job(values: Partial<ExtractionJobDocument>): ExtractionJobDocument {
   return {
     articleId: "article", priority: "live", status: "pending", attempts: 1,

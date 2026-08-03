@@ -7,6 +7,7 @@ export default defineConfig({
     proxy: {
       "/api": "http://localhost:8080",
       "/auth": "http://localhost:8080",
+      "/discord": "http://localhost:8080",
       "/internal": "http://localhost:8080",
     },
   },
