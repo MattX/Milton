@@ -16,6 +16,11 @@ export function encodeCursor(offset: number): string {
   return Buffer.from(JSON.stringify({ offset }), "utf8").toString("base64url");
 }
 
+export function encodeNextCursor(offset: number, pageSize: number, hasMore: boolean): string | null {
+  const nextOffset = offset + pageSize;
+  return hasMore && nextOffset <= MAX_OFFSET ? encodeCursor(nextOffset) : null;
+}
+
 export function decodeCursor(cursor: string | null): number {
   if (!cursor) return 0;
   try {

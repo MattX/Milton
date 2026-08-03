@@ -36,10 +36,12 @@ export interface DiscordChannel {
   name?: string;
   type: number;
   last_message_id?: string | null;
+  thread_metadata?: { archive_timestamp?: string };
 }
 
 export interface DiscordThreadList {
   threads: DiscordChannel[];
+  has_more?: boolean;
 }
 
 export interface LatestOccurrence {
@@ -120,5 +122,8 @@ export interface ChannelCursorDocument {
   liveAfterId: string;
   backfillBeforeId: string | null;
   backfillComplete: boolean;
+  /** Oldest archived-thread page discovered so far. Undefined on pre-migration documents. */
+  archivedThreadScanBefore?: string | null;
+  archivedThreadScanComplete?: boolean;
   updatedAt: string;
 }

@@ -155,6 +155,13 @@ resource "google_service_account_iam_member" "tasks_token_creator" {
   depends_on         = [google_project_service.apis]
 }
 
+# Creating a task with an OIDC identity requires the creator to be allowed to act as that identity.
+resource "google_service_account_iam_member" "runtime_tasks_act_as" {
+  service_account_id = google_service_account.tasks.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.runtime.email}"
+}
+
 resource "google_cloud_tasks_queue" "live" {
   project  = data.google_project.milton.project_id
   name     = "milton-live-extraction"

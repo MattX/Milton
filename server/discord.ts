@@ -33,7 +33,7 @@ export class DiscordIngestion {
     await mapConcurrent(channels, CHANNEL_CONCURRENCY, async (cursor) => {
       if (Date.now() > deadline - BACKFILL_RESERVE_MS) return;
       if (!cursor.isThread) {
-        await this.step(`archived threads in #${cursor.channelName}`, () => this.discoverArchivedThreads(cursor.channelId));
+        await this.step(`archived threads in #${cursor.channelName}`, () => this.discoverArchivedThreads(cursor));
       }
       await this.step(`channel #${cursor.channelName}`, () => this.pollLive(cursor));
     });
@@ -64,9 +64,27 @@ export class DiscordIngestion {
    * Archived threads are invisible to the active-thread listing but still hold indexable history,
    * so each polled channel also contributes its archived threads to the backfill.
    */
-  private async discoverArchivedThreads(channelId: string): Promise<void> {
-    const { threads } = await this.discordFetch<DiscordThreadList>(`/channels/${channelId}/threads/archived/public?limit=${MESSAGE_PAGE_SIZE}`);
-    await this.repository.upsertChannels(threads.map((thread) => discovered(thread, true, true)));
+  private async discoverArchivedThreads(cursor: ChannelCursorDocument): Promise<void> {
+    const endpoint = `/channels/${cursor.channelId}/threads/archived/public?limit=${MESSAGE_PAGE_SIZE}`;
+    const newest = await this.discordFetch<DiscordThreadList>(endpoint);
+    await this.persistArchivedThreads(newest);
+
+    if (cursor.archivedThreadScanComplete) return;
+    const historical = cursor.archivedThreadScanBefore
+      ? await this.discordFetch<DiscordThreadList>(`${endpoint}&before=${encodeURIComponent(cursor.archivedThreadScanBefore)}`)
+      : newest;
+    if (historical !== newest) await this.persistArchivedThreads(historical);
+
+    const oldest = historical.threads.at(-1)?.thread_metadata?.archive_timestamp;
+    if (historical.has_more && !oldest) throw new Error("Discord omitted an archived thread pagination timestamp");
+    await this.repository.updateCursor(cursor.channelId, {
+      archivedThreadScanBefore: historical.has_more ? oldest : cursor.archivedThreadScanBefore,
+      archivedThreadScanComplete: historical.has_more !== true,
+    });
+  }
+
+  private async persistArchivedThreads(page: DiscordThreadList): Promise<void> {
+    await this.repository.upsertChannels(page.threads.map((thread) => discovered(thread, true, true)));
   }
 
   private async pollLive(cursor: ChannelCursorDocument): Promise<void> {

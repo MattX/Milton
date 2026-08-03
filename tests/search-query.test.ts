@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeCursor, encodeCursor, normalizeSearchQuery } from "../server/search-query";
+import { decodeCursor, encodeCursor, encodeNextCursor, normalizeSearchQuery } from "../server/search-query";
 
 describe("search query handling", () => {
   it("normalizes words while preserving phrases and exclusions", () => {
@@ -18,5 +18,11 @@ describe("search query handling", () => {
     expect(decodeCursor("-20")).toBe(0);
     expect(decodeCursor("999999999")).toBe(0);
     expect(decodeCursor(null)).toBe(0);
+  });
+
+  it("does not emit a cursor beyond the maximum billable offset", () => {
+    expect(encodeNextCursor(1_980, 20, true)).toBe(encodeCursor(2_000));
+    expect(encodeNextCursor(2_000, 20, true)).toBeNull();
+    expect(encodeNextCursor(20, 20, false)).toBeNull();
   });
 });

@@ -3,7 +3,7 @@ import { Firestore, Pipelines } from "@google-cloud/firestore";
 import type { AdminStatus, ArticleResult, SearchResponse } from "../shared/api.js";
 import { mapConcurrent } from "./concurrency.js";
 import { initialChannelCursor } from "./discord-cursors.js";
-import { decodeCursor, encodeCursor, normalizeSearchQuery } from "./search-query.js";
+import { decodeCursor, encodeNextCursor, normalizeSearchQuery } from "./search-query.js";
 import type {
   ArticleDocument,
   ChannelCursorDocument,
@@ -212,10 +212,15 @@ export class FirestoreRepository implements Repository {
         // A cursor with no live boundary was never seeded — it predates seeding at creation, or its
         // channel was unreachable at the time. Repair it rather than polling from a missing cursor.
         const repair = existing.liveAfterId ? null : initialChannelCursor(value.lastMessageId, Date.now());
+        const archiveRepair = existing.archivedThreadScanComplete === undefined
+          ? initialArchivedThreadScan(value.isThread)
+          : null;
         const renamed = existing.channelName !== value.channelName || existing.archived !== value.archived;
         // Only write when something actually changed; discovery runs every five minutes.
-        if (!renamed && !repair) continue;
-        writer.update(ref, { channelName: value.channelName, archived: value.archived, ...repair, updatedAt: now });
+        if (!renamed && !repair && !archiveRepair) continue;
+        writer.update(ref, {
+          channelName: value.channelName, archived: value.archived, ...repair, ...archiveRepair, updatedAt: now,
+        });
       } else {
         writer.create(ref, {
           channelId: value.channelId,
@@ -223,6 +228,7 @@ export class FirestoreRepository implements Repository {
           isThread: value.isThread,
           archived: value.archived,
           ...initialChannelCursor(value.lastMessageId, Date.now()),
+          ...initialArchivedThreadScan(value.isThread),
           updatedAt: now,
         } satisfies ChannelCursorDocument);
       }
@@ -272,7 +278,15 @@ export class FirestoreRepository implements Repository {
       if (!articleSnap.exists || !jobSnap.exists) return { status: "settled" };
       const article = articleSnap.data() as ArticleDocument;
       const job = jobSnap.data() as ExtractionJobDocument;
-      if (article.extractionStatus === "indexed" || job.status === "completed" || job.status === "failed") {
+      if (article.extractionStatus === "indexed") {
+        if (job.status !== "completed") {
+          transaction.update(jobRef, {
+            status: "completed", lastError: null, processingStartedAt: null, updatedAt: new Date().toISOString(),
+          });
+        }
+        return { status: "settled" };
+      }
+      if (job.status === "completed" || job.status === "failed") {
         return { status: "settled" };
       }
       const leaseHeldSince = job.processingStartedAt ? Date.parse(job.processingStartedAt) : 0;
@@ -352,24 +366,45 @@ export class FirestoreRepository implements Repository {
   /** Returns the jobs to re-enqueue. `clearHistory` also clears the link-only record on the article. */
   private async resetJobs(jobs: ExtractionJobDocument[], clearHistory: boolean): Promise<QueuedJob[]> {
     if (!jobs.length) return [];
-    const now = new Date().toISOString();
-    const writer = this.db.bulkWriter();
-    for (const job of jobs) {
-      writer.update(this.db.collection("extractionJobs").doc(job.articleId), {
-        status: "pending",
-        processingStartedAt: null,
-        updatedAt: now,
+    const reset: QueuedJob[] = [];
+    await mapConcurrent(jobs, WRITE_CONCURRENCY, async (job) => {
+      if (await this.resetJob(job, clearHistory)) {
+        reset.push({ articleId: job.articleId, priority: job.priority });
+      }
+    });
+    return reset;
+  }
+
+  private async resetJob(job: ExtractionJobDocument, clearHistory: boolean): Promise<boolean> {
+    const jobRef = this.db.collection("extractionJobs").doc(job.articleId);
+    const articleRef = this.db.collection("articles").doc(job.articleId);
+    return this.db.runTransaction(async (transaction) => {
+      const currentSnap = await transaction.get(jobRef);
+      const current = currentSnap.data() as ExtractionJobDocument | undefined;
+      const stillSelected = clearHistory
+        ? current?.status === "failed"
+        : current?.status === "processing" && current.processingStartedAt === job.processingStartedAt;
+      if (!stillSelected) return false;
+
+      // Firestore transactions require all reads before writes.
+      const articleSnap = clearHistory ? await transaction.get(articleRef) : null;
+      const now = new Date().toISOString();
+      transaction.update(jobRef, {
+        status: "pending", processingStartedAt: null, updatedAt: now,
         ...(clearHistory ? { attempts: 0, lastError: null } : {}),
       });
-      if (clearHistory) {
-        writer.update(this.db.collection("articles").doc(job.articleId), {
+      if (articleSnap?.exists) {
+        transaction.update(articleRef, {
           extractionStatus: "pending", extractionFailureClass: null, updatedAt: now,
         });
       }
-    }
-    await writer.close();
-    return jobs.map((job) => ({ articleId: job.articleId, priority: job.priority }));
+      return true;
+    });
   }
+}
+
+function initialArchivedThreadScan(isThread: boolean) {
+  return { archivedThreadScanBefore: null, archivedThreadScanComplete: isThread };
 }
 
 function articleId(url: string): string {
@@ -390,5 +425,5 @@ function mapSearchPage(rows: Array<{ id: string; data: ArticleDocument }>, offse
     extractionStatus: data.extractionStatus,
     latestOccurrence: data.latestOccurrence,
   }));
-  return { items, nextCursor: rows.length > PAGE_SIZE ? encodeCursor(offset + PAGE_SIZE) : null };
+  return { items, nextCursor: encodeNextCursor(offset, PAGE_SIZE, rows.length > PAGE_SIZE) };
 }

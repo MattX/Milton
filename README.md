@@ -16,7 +16,8 @@ The service fetches server-rendered HTML directly. Mozilla Readability is tried 
 - Extraction enforces a 15-second wall-clock budget across DNS, redirects, and the body read, plus no more than five redirects, a 2 MiB response cap, HTML content-type checks, DNS pinning, and rejection of every hostname that resolves to any non-public address.
 - Pages are decoded using their declared charset, not assumed to be UTF-8.
 - Bodies are capped at 32 KiB. Extraction method, hostname, status, content length, and failure class are stored with the article.
-- Discord OAuth sessions last eight hours and require current membership in the configured guild.
+- Discord membership is verified when a user signs in. Sessions last eight hours, so removal from the
+  configured guild can take up to the remainder of that session to revoke access.
 - Google-signed ID tokens are verified again in the app for `/internal/*`; only the configured scheduler and task service accounts are accepted.
 
 ## Local development
