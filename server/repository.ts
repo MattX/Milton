@@ -45,6 +45,7 @@ export interface ChannelDiscovery {
 export interface QueuedJob {
   articleId: string;
   priority: JobPriority;
+  generation: number;
 }
 
 export interface Repository {
@@ -62,11 +63,15 @@ export interface Repository {
   archiveChannels(channelIds: string[]): Promise<void>;
   updateCursor(channelId: string, values: Partial<ChannelCursorDocument>): Promise<void>;
   nextBackfillChannel(): Promise<ChannelCursorDocument | null>;
-  claimExtraction(articleId: string): Promise<ExtractionClaim>;
-  completeExtraction(articleId: string, outcome: ExtractedArticle): Promise<void>;
-  failExtraction(articleId: string, failure: ExtractionFailure, terminal: boolean): Promise<void>;
+  claimExtraction(articleId: string, generation?: number): Promise<ExtractionClaim>;
+  completeExtraction(articleId: string, outcome: ExtractedArticle, generation?: number): Promise<void>;
+  failExtraction(articleId: string, failure: ExtractionFailure, terminal: boolean, generation?: number): Promise<void>;
   requeueStalledExtractions(staleBefore: Date, limit: number): Promise<QueuedJob[]>;
   requeueFailedExtractions(limit: number): Promise<QueuedJob[]>;
+  getDispatchableJob(articleId: string): Promise<QueuedJob | null>;
+  markTaskDispatched(job: QueuedJob): Promise<void>;
+  listRecoverableExtractions(staleBefore: Date, limit: number): Promise<ExtractionJobDocument[]>;
+  reserveRecovery(job: ExtractionJobDocument): Promise<QueuedJob | null>;
 }
 
 interface LinkRecord extends NormalizedLink {
@@ -134,18 +139,29 @@ export class FirestoreRepository implements Repository {
 
       const job = jobSnap.data() as ExtractionJobDocument | undefined;
       if (article.extractionStatus !== "pending" || job?.status === "completed" || job?.status === "failed") return false;
+      const effectivePriority = job?.priority === "live" || priority === "live" ? "live" : "history";
+      const promotePending = job?.status === "pending" && job.priority === "history" && priority === "live";
+      // A legacy processing holder remains valid until its lease goes stale; only pending legacy
+      // work is migrated immediately.
+      const reserveGeneration = !job || (job.status === "pending" && job.taskGeneration === undefined) || promotePending;
+      const nextGeneration = reserveGeneration ? (job?.taskGeneration ?? 0) + 1 : job?.taskGeneration;
       transaction.set(jobRef, {
         articleId: id,
         // A live repost promotes a queued historical job.
-        priority: job?.priority === "live" || priority === "live" ? "live" : "history",
+        priority: effectivePriority,
         status: job?.status || "pending",
         attempts: job?.attempts || 0,
         lastError: job?.lastError ?? null,
         processingStartedAt: job?.processingStartedAt ?? null,
         createdAt: job?.createdAt || now,
         updatedAt: now,
+        ...(nextGeneration === undefined ? {} : { taskGeneration: nextGeneration }),
+        taskPriority: reserveGeneration ? effectivePriority : (job.taskPriority ?? job.priority),
+        taskDispatchState: reserveGeneration ? "needs_dispatch" : (job.taskDispatchState ?? "dispatched"),
       } satisfies ExtractionJobDocument);
-      return true;
+      // A processing promotion changes only the priority used by a later recovery; its holder stays valid.
+      return (job?.status ?? "pending") === "pending"
+        && (reserveGeneration || job?.taskDispatchState === "needs_dispatch");
     });
   }
 
@@ -306,7 +322,7 @@ export class FirestoreRepository implements Repository {
     return snapshot.empty ? null : (snapshot.docs[0]!.data() as ChannelCursorDocument);
   }
 
-  async claimExtraction(articleIdValue: string): Promise<ExtractionClaim> {
+  async claimExtraction(articleIdValue: string, generation?: number): Promise<ExtractionClaim> {
     const articleRef = this.db.collection("articles").doc(articleIdValue);
     const jobRef = this.db.collection("extractionJobs").doc(articleIdValue);
     return this.db.runTransaction<ExtractionClaim>(async (transaction) => {
@@ -314,6 +330,10 @@ export class FirestoreRepository implements Repository {
       if (!articleSnap.exists || !jobSnap.exists) return { status: "settled" };
       const article = articleSnap.data() as ArticleDocument;
       const job = jobSnap.data() as ExtractionJobDocument;
+      // Legacy deliveries are accepted only while the job itself is still legacy.
+      if (generation !== job.taskGeneration || (generation === undefined) !== (job.taskGeneration === undefined)) {
+        return { status: "settled" };
+      }
       if (article.extractionStatus === "indexed") {
         if (job.status !== "completed") {
           transaction.update(jobRef, {
@@ -328,6 +348,18 @@ export class FirestoreRepository implements Repository {
       const leaseHeldSince = job.processingStartedAt ? Date.parse(job.processingStartedAt) : 0;
       if (job.status === "processing" && leaseHeldSince > Date.now() - LEASE_MS) return { status: "leased" };
 
+      if (job.attempts >= 3) {
+        const now = new Date().toISOString();
+        transaction.update(jobRef, {
+          status: "failed", lastError: "Extraction attempt limit reached", processingStartedAt: null, updatedAt: now,
+        });
+        transaction.update(articleRef, {
+          extractionStatus: "failed", extractionMethod: "link-only", extractionFailureClass: "retry_exhausted",
+          extractionHttpStatus: null, extractionContentLength: null, extractionHostname: article.domain, updatedAt: now,
+        });
+        return { status: "settled" };
+      }
+
       const now = new Date().toISOString();
       const claimed: ExtractionJobDocument = {
         ...job, status: "processing", attempts: job.attempts + 1, processingStartedAt: now, updatedAt: now,
@@ -337,48 +369,112 @@ export class FirestoreRepository implements Repository {
     });
   }
 
-  async completeExtraction(articleIdValue: string, outcome: ExtractedArticle): Promise<void> {
+  async completeExtraction(articleIdValue: string, outcome: ExtractedArticle, generation?: number): Promise<void> {
     const now = new Date().toISOString();
-    const batch = this.db.batch();
-    batch.update(this.db.collection("articles").doc(articleIdValue), {
-      ...(outcome.title ? { title: outcome.title } : {}),
-      body: outcome.body,
-      excerpt: outcome.excerpt,
-      extractionStatus: "indexed",
-      extractionMethod: outcome.method,
-      extractionFailureClass: null,
-      extractionHttpStatus: outcome.httpStatus,
-      extractionContentLength: outcome.contentLength,
-      extractionHostname: outcome.hostname,
-      updatedAt: now,
+    const articleRef = this.db.collection("articles").doc(articleIdValue);
+    const jobRef = this.db.collection("extractionJobs").doc(articleIdValue);
+    await this.db.runTransaction(async (transaction) => {
+      const job = (await transaction.get(jobRef)).data() as ExtractionJobDocument | undefined;
+      if (!job || job.status !== "processing" || job.taskGeneration !== generation) return;
+      transaction.update(articleRef, {
+        ...(outcome.title ? { title: outcome.title } : {}), body: outcome.body, excerpt: outcome.excerpt,
+        extractionStatus: "indexed", extractionMethod: outcome.method, extractionFailureClass: null,
+        extractionHttpStatus: outcome.httpStatus, extractionContentLength: outcome.contentLength,
+        extractionHostname: outcome.hostname, updatedAt: now,
+      });
+      transaction.update(jobRef, { status: "completed", lastError: null, processingStartedAt: null, updatedAt: now });
     });
-    batch.update(this.db.collection("extractionJobs").doc(articleIdValue), {
-      status: "completed", lastError: null, processingStartedAt: null, updatedAt: now,
-    });
-    await batch.commit();
   }
 
-  async failExtraction(articleIdValue: string, failure: ExtractionFailure, terminal: boolean): Promise<void> {
+  async failExtraction(articleIdValue: string, failure: ExtractionFailure, terminal: boolean, generation?: number): Promise<void> {
     const now = new Date().toISOString();
-    const batch = this.db.batch();
-    batch.update(this.db.collection("extractionJobs").doc(articleIdValue), {
-      status: terminal ? "failed" : "pending",
-      lastError: failure.message.slice(0, 1000),
-      processingStartedAt: null,
-      updatedAt: now,
-    });
-    if (terminal) {
-      batch.update(this.db.collection("articles").doc(articleIdValue), {
-        extractionStatus: "failed",
-        extractionMethod: "link-only",
-        extractionFailureClass: failure.failureClass,
-        extractionHttpStatus: failure.httpStatus,
-        extractionContentLength: failure.contentLength,
-        extractionHostname: failure.hostname,
-        updatedAt: now,
+    const articleRef = this.db.collection("articles").doc(articleIdValue);
+    const jobRef = this.db.collection("extractionJobs").doc(articleIdValue);
+    await this.db.runTransaction(async (transaction) => {
+      const job = (await transaction.get(jobRef)).data() as ExtractionJobDocument | undefined;
+      if (!job || job.status !== "processing" || job.taskGeneration !== generation) return;
+      transaction.update(jobRef, {
+        status: terminal ? "failed" : "pending", lastError: failure.message.slice(0, 1000),
+        processingStartedAt: null, updatedAt: now,
       });
+      if (terminal) {
+        transaction.update(articleRef, {
+          extractionStatus: "failed", extractionMethod: "link-only", extractionFailureClass: failure.failureClass,
+          extractionHttpStatus: failure.httpStatus, extractionContentLength: failure.contentLength,
+          extractionHostname: failure.hostname, updatedAt: now,
+        });
+      }
+    });
+  }
+
+  async getDispatchableJob(articleIdValue: string): Promise<QueuedJob | null> {
+    const snapshot = await this.db.collection("extractionJobs").doc(articleIdValue).get();
+    const job = snapshot.data() as ExtractionJobDocument | undefined;
+    if (!job || job.status !== "pending" || job.taskDispatchState !== "needs_dispatch" || job.taskGeneration === undefined) return null;
+    return { articleId: job.articleId, priority: job.taskPriority ?? job.priority, generation: job.taskGeneration };
+  }
+
+  async markTaskDispatched(job: QueuedJob): Promise<void> {
+    const ref = this.db.collection("extractionJobs").doc(job.articleId);
+    await this.db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(ref);
+      const current = snapshot.data() as ExtractionJobDocument | undefined;
+      if (current?.taskGeneration !== job.generation || current.taskPriority !== job.priority
+        || current.taskDispatchState !== "needs_dispatch") return;
+      transaction.update(ref, { taskDispatchState: "dispatched", updatedAt: new Date().toISOString() });
+    });
+  }
+
+  async listRecoverableExtractions(staleBefore: Date, limit: number): Promise<ExtractionJobDocument[]> {
+    const [pending, processing] = await Promise.all([
+      this.db.collection("extractionJobs").where("status", "==", "pending").limit(limit).get(),
+      this.db.collection("extractionJobs").where("status", "==", "processing")
+        .where("processingStartedAt", "<", staleBefore.toISOString()).limit(limit).get(),
+    ]);
+    const jobs = new Map<string, ExtractionJobDocument>();
+    for (const doc of [...pending.docs, ...processing.docs]) {
+      const job = doc.data() as ExtractionJobDocument;
+      jobs.set(job.articleId, job);
     }
-    await batch.commit();
+    return [...jobs.values()].slice(0, limit);
+  }
+
+  /** Reserves the next deterministic generation after an exact observed task is found missing. */
+  async reserveRecovery(observed: ExtractionJobDocument): Promise<QueuedJob | null> {
+    const jobRef = this.db.collection("extractionJobs").doc(observed.articleId);
+    const articleRef = this.db.collection("articles").doc(observed.articleId);
+    return this.db.runTransaction(async (transaction) => {
+      const [jobSnap, articleSnap] = await Promise.all([transaction.get(jobRef), transaction.get(articleRef)]);
+      const current = jobSnap.data() as ExtractionJobDocument | undefined;
+      if (!current || !articleSnap.exists || current.status !== observed.status
+        || current.taskGeneration !== observed.taskGeneration
+        || current.taskDispatchState !== observed.taskDispatchState
+        || current.processingStartedAt !== observed.processingStartedAt) return null;
+
+      const priority = current.priority;
+      const alreadyReserved = current.taskGeneration !== undefined && current.taskDispatchState === "needs_dispatch";
+      const generation = alreadyReserved ? current.taskGeneration! : (current.taskGeneration ?? 0) + 1;
+      const now = new Date().toISOString();
+      if (current.attempts >= 3) {
+        const article = articleSnap.data() as ArticleDocument;
+        transaction.update(jobRef, {
+          status: "failed", lastError: "Extraction attempt limit reached", processingStartedAt: null, updatedAt: now,
+        });
+        transaction.update(articleRef, {
+          extractionStatus: "failed", extractionMethod: "link-only", extractionFailureClass: "retry_exhausted",
+          extractionHttpStatus: null, extractionContentLength: null, extractionHostname: article.domain, updatedAt: now,
+        });
+        return null;
+      }
+      if (alreadyReserved) {
+        return { articleId: current.articleId, priority: current.taskPriority ?? priority, generation };
+      }
+      transaction.update(jobRef, {
+        status: "pending", processingStartedAt: null, taskGeneration: generation,
+        taskPriority: priority, taskDispatchState: "needs_dispatch", updatedAt: now,
+      });
+      return { articleId: current.articleId, priority, generation };
+    });
   }
 
   /**
@@ -390,7 +486,8 @@ export class FirestoreRepository implements Repository {
       .where("status", "==", "processing")
       .where("processingStartedAt", "<", staleBefore.toISOString())
       .limit(limit).get();
-    return this.resetJobs(snapshot.docs.map((doc) => doc.data() as ExtractionJobDocument), false);
+    const jobs = await Promise.all(snapshot.docs.map((doc) => this.reserveRecovery(doc.data() as ExtractionJobDocument)));
+    return jobs.filter((job): job is QueuedJob => job !== null);
   }
 
   async requeueFailedExtractions(limit: number): Promise<QueuedJob[]> {
@@ -404,29 +501,31 @@ export class FirestoreRepository implements Repository {
     if (!jobs.length) return [];
     const reset: QueuedJob[] = [];
     await mapConcurrent(jobs, WRITE_CONCURRENCY, async (job) => {
-      if (await this.resetJob(job, clearHistory)) {
-        reset.push({ articleId: job.articleId, priority: job.priority });
-      }
+      const queued = await this.resetJob(job, clearHistory);
+      if (queued) reset.push(queued);
     });
     return reset;
   }
 
-  private async resetJob(job: ExtractionJobDocument, clearHistory: boolean): Promise<boolean> {
+  private async resetJob(job: ExtractionJobDocument, clearHistory: boolean): Promise<QueuedJob | null> {
     const jobRef = this.db.collection("extractionJobs").doc(job.articleId);
     const articleRef = this.db.collection("articles").doc(job.articleId);
     return this.db.runTransaction(async (transaction) => {
       const currentSnap = await transaction.get(jobRef);
       const current = currentSnap.data() as ExtractionJobDocument | undefined;
+      if (!current) return null;
       const stillSelected = clearHistory
-        ? current?.status === "failed"
-        : current?.status === "processing" && current.processingStartedAt === job.processingStartedAt;
-      if (!stillSelected) return false;
+        ? current.status === "failed"
+        : current.status === "processing" && current.processingStartedAt === job.processingStartedAt;
+      if (!stillSelected) return null;
 
       // Firestore transactions require all reads before writes.
       const articleSnap = clearHistory ? await transaction.get(articleRef) : null;
       const now = new Date().toISOString();
+      const generation = (current.taskGeneration ?? 0) + 1;
       transaction.update(jobRef, {
         status: "pending", processingStartedAt: null, updatedAt: now,
+        taskGeneration: generation, taskPriority: current.priority, taskDispatchState: "needs_dispatch",
         ...(clearHistory ? { attempts: 0, lastError: null } : {}),
       });
       if (articleSnap?.exists) {
@@ -434,7 +533,7 @@ export class FirestoreRepository implements Repository {
           extractionStatus: "pending", extractionFailureClass: null, updatedAt: now,
         });
       }
-      return true;
+      return { articleId: current.articleId, priority: current.priority, generation };
     });
   }
 }

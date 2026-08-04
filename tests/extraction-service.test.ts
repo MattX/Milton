@@ -58,10 +58,10 @@ describe("extraction task delivery", () => {
     expect(extractor).not.toHaveBeenCalled();
   });
 
-  it("asks for redelivery rather than dropping work whose lease is still held", async () => {
+  it("acknowledges a duplicate delivery while another worker holds the lease", async () => {
     const { repository } = repositoryFor({ status: "leased" });
     const extractor = vi.fn();
-    expect(await new ExtractionService(repository, extractor).run("article")).toBe(true);
+    expect(await new ExtractionService(repository, extractor).run("article")).toBe(false);
     expect(extractor).not.toHaveBeenCalled();
   });
 });

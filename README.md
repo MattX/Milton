@@ -128,7 +128,7 @@ Sign in as a configured administrator and select **Start historical backfill**. 
 ## Operations and acceptance
 
 - A URL repost updates the article's latest occurrence without duplicating the article or extraction job.
-- Cloud Tasks names are deterministic, claims are transactional, and temporary failures retry up to three extraction attempts across five deliveries. Permanent failures become link-only records immediately.
+- Cloud Tasks names are deterministic per job generation, claims and the three-attempt ceiling are transactional, and duplicate or obsolete deliveries are acknowledged. Parsing runs in a disposable 192 MB worker with a 20-second limit; parser resource exhaustion and other permanent failures become link-only records immediately.
 - Link-only records are not retried automatically. Sign in as an administrator and select **Retry failed extractions** to requeue them, for example after fixing an outage that failed a batch.
 - Review `extractionFailureClass` grouped by `extractionHostname` after the backfill. Test a browser on a representative 20-URL sample only if at least 20 useful JS-only failures, or more than 10% of useful links, fail HTTP extraction.
 - Verify representative phrase, exclusion, Unicode, and relevance searches; conversation backlinks; OAuth rejection outside the guild; cursor resumption; and discovery within roughly five minutes.

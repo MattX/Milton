@@ -2,6 +2,7 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
 import type { LookupFunction } from "node:net";
+import { Worker } from "node:worker_threads";
 import { Readability } from "@mozilla/readability";
 import ipaddr from "ipaddr.js";
 import { JSDOM } from "jsdom";
@@ -15,6 +16,8 @@ const MAX_REDIRECTS = 5;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const MIN_READABLE_CHARACTERS = 120;
 const BOT_BLOCK_SAMPLE_BYTES = 100_000;
+const PARSE_TIMEOUT_MS = 20_000;
+const PARSE_OLD_GENERATION_MB = 192;
 
 export class ExtractionError extends Error {
   constructor(
@@ -36,7 +39,66 @@ interface HtmlResponse {
 
 export async function extractArticle(rawUrl: string): Promise<ExtractedArticle> {
   const response = await fetchHtml(rawUrl);
-  return parseArticleHtml(response.body, response.url, response.status, response.contentType);
+  return parseArticleIsolated(response.body, response.url, response.status, response.contentType);
+}
+
+type WorkerFactory = (url: URL, options: ConstructorParameters<typeof Worker>[1]) => Worker;
+
+/** Runs one parse in a disposable heap so malformed or adversarial DOMs cannot kill the service. */
+export function parseArticleIsolated(
+  source: Buffer,
+  url: URL,
+  status: number,
+  contentType: string,
+  options: { timeoutMs?: number; workerFactory?: WorkerFactory } = {},
+): Promise<ExtractedArticle> {
+  const metadata = { hostname: url.hostname, httpStatus: status, contentLength: source.byteLength };
+  const bytes = new Uint8Array(source.byteLength);
+  bytes.set(source); // Buffer may be a view into a much larger slab; transfer only the response bytes.
+  let worker: Worker;
+  try {
+    worker = (options.workerFactory ?? ((entry, workerOptions) => new Worker(entry, workerOptions)))(
+      new URL("./extractor-worker.js", import.meta.url),
+      { resourceLimits: { maxOldGenerationSizeMb: PARSE_OLD_GENERATION_MB } },
+    );
+  } catch (error) {
+    return Promise.reject(new ExtractionError("network_error", `Could not start article parser: ${messageOf(error)}`, metadata));
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      void worker.terminate();
+      callback();
+    };
+    const timer = setTimeout(() => settle(() => reject(new ExtractionError(
+      "parse_resource_limit", "HTML parsing exceeded the 20-second resource limit", metadata, true,
+    ))), options.timeoutMs ?? PARSE_TIMEOUT_MS);
+
+    worker.once("message", (message: unknown) => settle(() => {
+      const result = message as { ok?: boolean; article?: ExtractedArticle; error?: { failureClass: ExtractionFailureClass; message: string; metadata: typeof metadata; permanent: boolean } };
+      if (result.ok && result.article) resolve(result.article);
+      else if (!result.ok && result.error) reject(new ExtractionError(result.error.failureClass, result.error.message, result.error.metadata, result.error.permanent));
+      else reject(new ExtractionError("network_error", "Article parser returned an invalid response", metadata));
+    }));
+    worker.once("error", (error: Error & { code?: string }) => settle(() => reject(new ExtractionError(
+      error.code === "ERR_WORKER_OUT_OF_MEMORY" ? "parse_resource_limit" : "network_error",
+      error.code === "ERR_WORKER_OUT_OF_MEMORY" ? "HTML parsing exceeded its memory limit" : `Article parser failed: ${error.message}`,
+      metadata,
+      error.code === "ERR_WORKER_OUT_OF_MEMORY",
+    ))));
+    worker.once("exit", (code) => {
+      if (!settled) settle(() => reject(new ExtractionError("network_error", `Article parser exited without a result (${code})`, metadata)));
+    });
+    try {
+      worker.postMessage({ source: bytes, url: url.toString(), status, contentType }, [bytes.buffer]);
+    } catch (error) {
+      settle(() => reject(new ExtractionError("network_error", `Could not start article parser: ${messageOf(error)}`, metadata)));
+    }
+  });
 }
 
 /**

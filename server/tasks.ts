@@ -1,32 +1,28 @@
 import { CloudTasksClient, protos } from "@google-cloud/tasks";
 import type { Config, DigestTaskPayload, JobPriority } from "./types.js";
+import type { QueuedJob } from "./repository.js";
 
 export interface TaskEnqueuer {
-  /**
-   * Task names are deterministic so redelivered Discord messages cannot double-queue an article.
-   * `uniqueSuffix` deliberately opts out of that dedupe when requeueing a job on purpose.
-   */
-  enqueue(articleId: string, priority: JobPriority, uniqueSuffix?: string): Promise<void>;
+  enqueue(job: QueuedJob): Promise<void>;
+  exists(job: QueuedJob): Promise<boolean>;
 }
 
-/** Cloud Tasks dedupes by task name for about an hour after completion, so requeues need a fresh one. */
-export function retryToken(): string {
-  return Date.now().toString(36);
+export function articleTaskId(articleId: string, generation: number): string {
+  return `article-v2-${articleId}-g${generation}`;
 }
 
 export class CloudTaskEnqueuer implements TaskEnqueuer {
   constructor(private readonly client: CloudTasksClient, private readonly config: Config) {}
 
-  async enqueue(articleId: string, priority: JobPriority, uniqueSuffix?: string): Promise<void> {
-    const queue = priority === "live" ? this.config.liveTaskQueue : this.config.historyTaskQueue;
-    const taskId = `article-${articleId}${uniqueSuffix ? `-${uniqueSuffix}` : ""}`;
+  async enqueue(job: QueuedJob): Promise<void> {
+    const queue = this.queue(job.priority);
     const task: protos.google.cloud.tasks.v2.ITask = {
-      name: this.client.taskPath(this.config.projectId, this.config.location, queue, taskId),
+      name: this.taskName(job),
       httpRequest: {
         httpMethod: protos.google.cloud.tasks.v2.HttpMethod.POST,
         url: `${this.config.serviceUrl}/internal/extract`,
         headers: { "Content-Type": "application/json" },
-        body: Buffer.from(JSON.stringify({ articleId })).toString("base64"),
+        body: Buffer.from(JSON.stringify({ articleId: job.articleId, generation: job.generation })).toString("base64"),
         oidcToken: { serviceAccountEmail: this.config.taskServiceAccount, audience: this.config.serviceUrl },
       },
     };
@@ -38,6 +34,26 @@ export class CloudTaskEnqueuer implements TaskEnqueuer {
     } catch (error) {
       if ((error as { code?: number }).code !== 6) throw error; // ALREADY_EXISTS is idempotent success.
     }
+  }
+
+  async exists(job: QueuedJob): Promise<boolean> {
+    try {
+      await this.client.getTask({ name: this.taskName(job) });
+      return true;
+    } catch (error) {
+      if ((error as { code?: number }).code === 5) return false; // NOT_FOUND is the only absence signal.
+      throw error;
+    }
+  }
+
+  private queue(priority: JobPriority): string {
+    return priority === "live" ? this.config.liveTaskQueue : this.config.historyTaskQueue;
+  }
+
+  private taskName(job: QueuedJob): string {
+    return this.client.taskPath(
+      this.config.projectId, this.config.location, this.queue(job.priority), articleTaskId(job.articleId, job.generation),
+    );
   }
 }
 

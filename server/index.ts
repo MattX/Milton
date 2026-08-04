@@ -12,7 +12,7 @@ import { DiscordCommands } from "./discord-commands.js";
 import { ExtractionService } from "./extraction-service.js";
 import { OpenRouterSummarizer } from "./openrouter.js";
 import { FirestoreRepository } from "./repository.js";
-import { CloudCommandTaskEnqueuer, CloudTaskEnqueuer, retryToken } from "./tasks.js";
+import { CloudCommandTaskEnqueuer, CloudTaskEnqueuer } from "./tasks.js";
 import type { DigestTaskPayload } from "./types.js";
 
 const RETRY_JOBS_PER_REQUEST = 200;
@@ -71,12 +71,17 @@ app.post("/internal/poll", requireInternal(config), async (_request, response) =
 });
 app.post("/internal/extract", requireInternal(config), async (request, response) => {
   const articleId = typeof request.body?.articleId === "string" ? request.body.articleId : "";
+  const generation = request.body?.generation;
   if (!/^[a-f0-9]{64}$/.test(articleId)) {
     response.status(400).json({ error: "invalid_article_id" });
     return;
   }
+  if (generation !== undefined && (!Number.isSafeInteger(generation) || generation < 1)) {
+    response.status(400).json({ error: "invalid_task_generation" });
+    return;
+  }
   // A 503 asks Cloud Tasks to redeliver; anything else would drop the job for good.
-  if (await extraction.run(articleId)) response.status(503).json({ error: "extraction_retry" });
+  if (await extraction.run(articleId, generation)) response.status(503).json({ error: "extraction_retry" });
   else response.status(204).end();
 });
 app.post("/internal/commands/digest", requireInternal(config), async (request, response) => {
@@ -102,7 +107,10 @@ app.post("/api/admin/backfill", requireAdmin, async (_request, response) => {
 });
 app.post("/api/admin/retry-failed", requireAdmin, async (_request, response) => {
   const jobs = await repository.requeueFailedExtractions(RETRY_JOBS_PER_REQUEST);
-  await mapConcurrent(jobs, 10, (job) => taskEnqueuer.enqueue(job.articleId, job.priority, retryToken()));
+  await mapConcurrent(jobs, 10, async (job) => {
+    await taskEnqueuer.enqueue(job);
+    await repository.markTaskDispatched(job);
+  });
   response.status(202).json({ requeued: jobs.length });
 });
 

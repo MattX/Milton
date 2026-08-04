@@ -1,7 +1,7 @@
 import { mapConcurrent } from "./concurrency.js";
 import { extremeSnowflake } from "./discord-cursors.js";
-import { LEASE_MS, type ChannelDiscovery, type Repository } from "./repository.js";
-import { retryToken, type TaskEnqueuer } from "./tasks.js";
+import { LEASE_MS, type ChannelDiscovery, type QueuedJob, type Repository } from "./repository.js";
+import type { TaskEnqueuer } from "./tasks.js";
 import type { ChannelCursorDocument, Config, DiscordChannel, DiscordMessage, DiscordThreadList, JobPriority } from "./types.js";
 
 const DISCORD_API = "https://discord.com/api/v10";
@@ -129,13 +129,37 @@ export class DiscordIngestion {
 
   private async requeueStalled(): Promise<void> {
     const stale = new Date(Date.now() - LEASE_MS);
-    const jobs = await this.repository.requeueStalledExtractions(stale, STALLED_JOBS_PER_RUN);
-    await mapConcurrent(jobs, CHANNEL_CONCURRENCY, (job) => this.tasks.enqueue(job.articleId, job.priority, retryToken()));
+    const jobs = await this.repository.listRecoverableExtractions(stale, STALLED_JOBS_PER_RUN);
+    await mapConcurrent(jobs, CHANNEL_CONCURRENCY, async (observed) => {
+      if (observed.taskGeneration !== undefined && observed.taskDispatchState === "needs_dispatch") {
+        const reserved = await this.repository.reserveRecovery(observed);
+        if (reserved) await this.dispatch(reserved);
+        return;
+      }
+      if (observed.taskGeneration !== undefined) {
+        const recorded = {
+          articleId: observed.articleId,
+          priority: observed.taskPriority ?? observed.priority,
+          generation: observed.taskGeneration,
+        };
+        if (await this.tasks.exists(recorded)) return;
+      }
+      const reserved = await this.repository.reserveRecovery(observed);
+      if (reserved) await this.dispatch(reserved);
+    });
   }
 
   private async persistAndEnqueue(messages: DiscordMessage[], channelName: string, priority: JobPriority): Promise<void> {
     const articleIds = await this.repository.persistDiscordMessages(messages, channelName, priority);
-    await Promise.all(articleIds.map((articleId) => this.tasks.enqueue(articleId, priority)));
+    await Promise.all(articleIds.map(async (articleId) => {
+      const job = await this.repository.getDispatchableJob(articleId);
+      if (job) await this.dispatch(job);
+    }));
+  }
+
+  private async dispatch(job: QueuedJob): Promise<void> {
+    await this.tasks.enqueue(job);
+    await this.repository.markTaskDispatched(job);
   }
 
   private async discordFetch<T>(path: string): Promise<T> {

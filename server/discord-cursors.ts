@@ -30,6 +30,11 @@ export function extremeSnowflake(values: string[], pick: "min" | "max"): string 
   }, null);
 }
 
+/** Converts an inclusive live cursor into Discord's exclusive `before` boundary. */
+export function backfillBoundary(liveAfterId: string): string {
+  return String(BigInt(liveAfterId) + 1n);
+}
+
 function snowflakeAt(milliseconds: number): string {
   return (BigInt(milliseconds - DISCORD_EPOCH_MS) << 22n).toString();
 }

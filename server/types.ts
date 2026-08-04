@@ -64,7 +64,7 @@ export type JobPriority = "live" | "history";
 export type ExtractionFailureClass =
   | "invalid_url" | "private_address" | "dns_failure" | "timeout" | "redirect_limit"
   | "http_error" | "bot_block" | "non_html" | "body_too_large" | "malformed_html"
-  | "insufficient_content" | "network_error";
+  | "insufficient_content" | "network_error" | "parse_resource_limit" | "retry_exhausted";
 
 /** A successful extraction, as returned by the extractor and stored on the article. */
 export interface ExtractedArticle {
@@ -120,6 +120,10 @@ export interface DigestTaskPayload {
 export interface ExtractionJobDocument {
   articleId: string;
   priority: JobPriority;
+  /** Undefined only on documents created before generation-tracked tasks were introduced. */
+  taskGeneration?: number;
+  taskPriority?: JobPriority;
+  taskDispatchState?: "needs_dispatch" | "dispatched";
   status: JobStatus;
   attempts: number;
   lastError: string | null;

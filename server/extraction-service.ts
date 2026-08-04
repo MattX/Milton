@@ -10,15 +10,16 @@ export class ExtractionService {
   ) {}
 
   /** Returns true when Cloud Tasks should redeliver this task. */
-  async run(articleId: string): Promise<boolean> {
-    const claim = await this.repository.claimExtraction(articleId);
-    // Another delivery holds the lease. It may be a duplicate, or a worker that died mid-extraction,
-    // so ask for redelivery rather than acknowledging work that might never have happened.
-    if (claim.status === "leased") return true;
+  async run(articleId: string, generation?: number): Promise<boolean> {
+    const claim = await this.repository.claimExtraction(articleId, generation);
+    // Duplicate leases are acknowledged. Poll reconciliation owns abandoned-worker recovery.
+    if (claim.status === "leased") return false;
     if (claim.status === "settled") return false;
 
     try {
-      await this.repository.completeExtraction(articleId, await this.extractor(claim.article.normalizedUrl));
+      const outcome = await this.extractor(claim.article.normalizedUrl);
+      if (generation === undefined) await this.repository.completeExtraction(articleId, outcome);
+      else await this.repository.completeExtraction(articleId, outcome, generation);
       return false;
     } catch (error) {
       const failure = error instanceof ExtractionError ? error : new ExtractionError(
@@ -27,11 +28,13 @@ export class ExtractionService {
         { hostname: claim.article.domain, httpStatus: null, contentLength: null },
       );
       const terminal = failure.permanent || claim.job.attempts >= MAX_ATTEMPTS;
-      await this.repository.failExtraction(articleId, {
+      const storedFailure = {
         failureClass: failure.failureClass,
         message: failure.message,
         ...failure.metadata,
-      }, terminal);
+      };
+      if (generation === undefined) await this.repository.failExtraction(articleId, storedFailure, terminal);
+      else await this.repository.failExtraction(articleId, storedFailure, terminal, generation);
       return !terminal;
     }
   }

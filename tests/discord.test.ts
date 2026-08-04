@@ -47,7 +47,7 @@ describe("Discord archived-thread discovery", () => {
     }));
 
     const config = { discordGuildId: "guild", discordBotToken: "token" } as Config;
-    const tasks = { enqueue: vi.fn().mockResolvedValue(undefined) };
+    const tasks = { enqueue: vi.fn().mockResolvedValue(undefined), exists: vi.fn().mockResolvedValue(false) };
     await new DiscordIngestion(repository, tasks, config).run(60_000);
 
     expect(upsertChannels).toHaveBeenCalledWith([expect.objectContaining({ channelId: "new", archived: true })]);
