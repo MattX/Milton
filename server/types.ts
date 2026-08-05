@@ -69,6 +69,7 @@ export type ExtractionFailureClass =
 /** A successful extraction, as returned by the extractor and stored on the article. */
 export interface ExtractedArticle {
   title: string | null;
+  description: string;
   body: string;
   excerpt: string;
   method: "readability" | "json-ld" | "metadata";
@@ -90,6 +91,7 @@ export interface ArticleDocument {
   normalizedUrl: string;
   domain: string;
   title: string;
+  description: string;
   body: string;
   excerpt: string;
   extractionStatus: ExtractionStatus;

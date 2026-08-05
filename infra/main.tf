@@ -99,10 +99,12 @@ resource "google_firestore_index" "article_text" {
   collection  = "articles"
   query_scope = "COLLECTION"
   density     = "SPARSE_ANY"
-  skip_wait   = true
+  lifecycle {
+    create_before_destroy = true
+  }
 
   dynamic "fields" {
-    for_each = toset(["title", "domain", "body"])
+    for_each = toset(["title", "domain", "description", "body"])
     content {
       field_path = fields.value
       search_config {

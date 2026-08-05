@@ -34,6 +34,12 @@ describe.skipIf(!repository)("Firestore Enterprise repository contract", () => {
     const unicode = { ...messages[0]!, id: "unicode", content: `https://example.com/${token}-日本語-café` };
     createdArticleIds.push(...await repository!.persistDiscordMessages([unicode], "unicode", "live"));
 
+    const descriptionToken = `${token}descriptiononly`;
+    await repository!.completeExtraction(createdArticleIds[0]!, {
+      title: "Neutral title", description: descriptionToken, body: "", excerpt: descriptionToken,
+      method: "metadata", httpStatus: 200, contentLength: 100, hostname: "example.com",
+    });
+
     const page1 = await repository!.search(`"${token} distributed systems" -legacy`, null);
     expect(page1.items).toHaveLength(20);
     expect(page1.nextCursor).toBeTruthy();
@@ -43,5 +49,6 @@ describe.skipIf(!repository)("Firestore Enterprise repository contract", () => {
     const reposted = [...page1.items, ...page2.items].find((item) => item.url.endsWith("-1"));
     expect(reposted?.latestOccurrence).toMatchObject({ authorName: "latest", channelName: "reposts" });
     expect((await repository!.search("日本語 café", null)).items.some((item) => item.url.includes(token))).toBe(true);
+    expect((await repository!.search(descriptionToken, null)).items.some((item) => item.id === createdArticleIds[0])).toBe(true);
   }, 30_000);
 });

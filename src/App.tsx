@@ -269,7 +269,7 @@ async function api<T = unknown>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function statusLabel(status: ArticleResult["extractionStatus"]): string {
-  if (status === "indexed") return "Full text";
+  if (status === "indexed") return "Indexed";
   if (status === "pending") return "Indexing";
   return "Link only";
 }

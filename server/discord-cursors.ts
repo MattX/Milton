@@ -17,9 +17,15 @@ export function initialChannelCursor(lastMessageId: string | null | undefined, n
   return {
     liveAfterId: lastMessageId,
     // `before` is exclusive, so start one past the newest message to include it in the backfill.
-    backfillBeforeId: String(BigInt(lastMessageId) + 1n),
+    backfillBeforeId: backfillBoundary(lastMessageId),
     backfillComplete: false,
   };
+}
+
+/** Discord's `before` cursor is exclusive, so one past the live boundary includes that message. */
+export function backfillBoundary(liveAfterId: string): string {
+  if (!/^\d+$/.test(liveAfterId)) throw new Error(`Invalid Discord live boundary: ${liveAfterId}`);
+  return String(BigInt(liveAfterId) + 1n);
 }
 
 export function extremeSnowflake(values: string[], pick: "min" | "max"): string | null {
@@ -28,11 +34,6 @@ export function extremeSnowflake(values: string[], pick: "min" | "max"): string 
     const isLower = BigInt(value) < BigInt(chosen);
     return isLower === (pick === "min") ? value : chosen;
   }, null);
-}
-
-/** Converts an inclusive live cursor into Discord's exclusive `before` boundary. */
-export function backfillBoundary(liveAfterId: string): string {
-  return String(BigInt(liveAfterId) + 1n);
 }
 
 function snowflakeAt(milliseconds: number): string {

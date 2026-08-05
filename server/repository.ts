@@ -121,6 +121,7 @@ export class FirestoreRepository implements Repository {
         domain: record.domain,
         // A successful extraction owns the title; anything else keeps the URL-derived placeholder.
         title: existing?.extractionStatus === "indexed" ? existing.title : fallbackTitle(record.normalizedUrl).slice(0, 300),
+        description: existing?.description || "",
         body: existing?.body || "",
         excerpt: existing?.excerpt || "",
         extractionStatus: existing?.extractionStatus || "pending",
@@ -377,7 +378,8 @@ export class FirestoreRepository implements Repository {
       const job = (await transaction.get(jobRef)).data() as ExtractionJobDocument | undefined;
       if (!job || job.status !== "processing" || job.taskGeneration !== generation) return;
       transaction.update(articleRef, {
-        ...(outcome.title ? { title: outcome.title } : {}), body: outcome.body, excerpt: outcome.excerpt,
+        ...(outcome.title ? { title: outcome.title } : {}), description: outcome.description,
+        body: outcome.body, excerpt: outcome.excerpt,
         extractionStatus: "indexed", extractionMethod: outcome.method, extractionFailureClass: null,
         extractionHttpStatus: outcome.httpStatus, extractionContentLength: outcome.contentLength,
         extractionHostname: outcome.hostname, updatedAt: now,

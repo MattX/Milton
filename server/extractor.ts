@@ -6,6 +6,9 @@ import { Worker } from "node:worker_threads";
 import { Readability } from "@mozilla/readability";
 import ipaddr from "ipaddr.js";
 import { JSDOM } from "jsdom";
+import createMetascraper from "metascraper";
+import descriptionRules from "metascraper-description";
+import titleRules from "metascraper-title";
 import { limitBody, makeExcerpt } from "./content.js";
 import type { ExtractedArticle, ExtractionFailureClass } from "./types.js";
 import { isSafeUrl } from "./urls.js";
@@ -18,6 +21,13 @@ const MIN_READABLE_CHARACTERS = 120;
 const BOT_BLOCK_SAMPLE_BYTES = 100_000;
 const PARSE_TIMEOUT_MS = 20_000;
 const PARSE_OLD_GENERATION_MB = 192;
+const MAX_TITLE_CHARACTERS = 300;
+const MAX_DESCRIPTION_CHARACTERS = 2_000;
+
+const scrapeMetadata = createMetascraper([
+  titleRules(),
+  descriptionRules({ truncateLength: MAX_DESCRIPTION_CHARACTERS, ellipsis: "" }),
+]);
 
 export class ExtractionError extends Error {
   constructor(
@@ -35,11 +45,16 @@ interface HtmlResponse {
   status: number;
   contentType: string;
   body: Buffer;
+  oversized: boolean;
+  contentLength: number;
 }
 
 export async function extractArticle(rawUrl: string): Promise<ExtractedArticle> {
   const response = await fetchHtml(rawUrl);
-  return parseArticleIsolated(response.body, response.url, response.status, response.contentType);
+  return parseArticleIsolated(response.body, response.url, response.status, response.contentType, {
+    oversized: response.oversized,
+    contentLength: response.contentLength,
+  });
 }
 
 type WorkerFactory = (url: URL, options: ConstructorParameters<typeof Worker>[1]) => Worker;
@@ -50,9 +65,14 @@ export function parseArticleIsolated(
   url: URL,
   status: number,
   contentType: string,
-  options: { timeoutMs?: number; workerFactory?: WorkerFactory } = {},
+  options: {
+    timeoutMs?: number;
+    workerFactory?: WorkerFactory;
+    oversized?: boolean;
+    contentLength?: number;
+  } = {},
 ): Promise<ExtractedArticle> {
-  const metadata = { hostname: url.hostname, httpStatus: status, contentLength: source.byteLength };
+  const metadata = { hostname: url.hostname, httpStatus: status, contentLength: options.contentLength ?? source.byteLength };
   const bytes = new Uint8Array(source.byteLength);
   bytes.set(source); // Buffer may be a view into a much larger slab; transfer only the response bytes.
   let worker: Worker;
@@ -94,7 +114,14 @@ export function parseArticleIsolated(
       if (!settled) settle(() => reject(new ExtractionError("network_error", `Article parser exited without a result (${code})`, metadata)));
     });
     try {
-      worker.postMessage({ source: bytes, url: url.toString(), status, contentType }, [bytes.buffer]);
+      worker.postMessage({
+        source: bytes,
+        url: url.toString(),
+        status,
+        contentType,
+        oversized: options.oversized ?? false,
+        contentLength: options.contentLength ?? source.byteLength,
+      }, [bytes.buffer]);
     } catch (error) {
       settle(() => reject(new ExtractionError("network_error", `Could not start article parser: ${messageOf(error)}`, metadata)));
     }
@@ -105,39 +132,74 @@ export function parseArticleIsolated(
  * Parses already-fetched HTML. The source stays a Buffer through `fetchHtml` so JSDOM can apply the
  * document's real charset; decoding as UTF-8 up front would mangle every legacy-encoded page.
  */
-export function parseArticleHtml(
+export async function parseArticleHtml(
   source: string | Buffer,
   url = new URL("https://example.com/"),
   status = 200,
   contentType = "text/html",
-): ExtractedArticle {
-  const contentLength = Buffer.byteLength(source);
+  responseInfo?: { oversized: boolean; contentLength: number },
+): Promise<ExtractedArticle> {
+  const sourceLength = Buffer.byteLength(source);
+  const oversized = responseInfo?.oversized ?? bodyIsOversized(sourceLength);
+  const contentLength = responseInfo?.contentLength ?? sourceLength;
+  const cappedSource = oversized
+    ? (Buffer.isBuffer(source) ? source.subarray(0, MAX_BODY_BYTES) : Buffer.from(source).subarray(0, MAX_BODY_BYTES))
+    : source;
   const detail = { hostname: url.hostname, httpStatus: status, contentLength };
-  if (looksLikeBotBlock(asciiSample(source))) {
+  if (looksLikeBotBlock(asciiSample(cappedSource))) {
     throw new ExtractionError("bot_block", "Page returned a browser challenge or CAPTCHA", detail);
   }
 
   let dom: JSDOM;
   try {
-    dom = new JSDOM(source, { url: url.toString(), contentType: htmlContentType(contentType) });
+    dom = new JSDOM(cappedSource, { url: url.toString(), contentType: htmlContentType(contentType) });
   } catch (error) {
     throw new ExtractionError("malformed_html", `Could not parse HTML: ${messageOf(error)}`, detail, true);
   }
 
-  const readable = new Readability(dom.window.document.cloneNode(true) as Document).parse();
-  const readableText = readable?.textContent ? limitBody(readable.textContent) : "";
-  if (readableText.length >= MIN_READABLE_CHARACTERS) {
-    return result(readable?.title || documentTitle(dom), readableText, "readability", detail);
-  }
-
+  // Metascraper and full-text extraction are deliberately independent. Serializing the JSDOM tree
+  // gives Metascraper correctly decoded text even for legacy response charsets.
+  let metadata: { title?: string; description?: string } = {};
+  try {
+    metadata = await scrapeMetadata({
+      html: dom.serialize(),
+      url: url.toString(),
+      pickPropNames: new Set(["title", "description"]),
+    });
+  } catch { /* Metadata failure must not prevent an otherwise readable page from being indexed. */ }
   const structured = jsonLdArticle(dom);
-  if (structured?.body && structured.body.length >= 40) {
-    return result(structured.title || documentTitle(dom), limitBody(structured.body), "json-ld", detail);
+  const title = metadata.title?.trim().slice(0, MAX_TITLE_CHARACTERS) || null;
+  const scrapedDescription = metadata.description?.trim().slice(0, MAX_DESCRIPTION_CHARACTERS) || "";
+  // metascraper-description treats JSON-LD articleBody as a description fallback. Keep that value
+  // out of the metadata field: articleBody belongs exclusively in `body`.
+  const description = scrapedDescription && structured?.body.trim().startsWith(scrapedDescription)
+    ? structured.description.slice(0, MAX_DESCRIPTION_CHARACTERS)
+    : scrapedDescription;
+
+  let body = "";
+  let method: ExtractedArticle["method"] = "metadata";
+  if (!oversized) {
+    let readableText = "";
+    try {
+      const readable = new Readability(dom.window.document.cloneNode(true) as Document).parse();
+      readableText = readable?.textContent ? limitBody(readable.textContent) : "";
+    } catch { /* JSON-LD and metadata remain valid independent extraction paths. */ }
+    if (readableText.length >= MIN_READABLE_CHARACTERS) {
+      body = readableText;
+      method = "readability";
+    } else {
+      if (structured?.body && structured.body.length >= 40) {
+        body = limitBody(structured.body);
+        method = "json-ld";
+      }
+    }
   }
 
-  const metadata = metadataArticle(dom);
-  if (metadata.body.length >= 20) {
-    return result(metadata.title, limitBody(metadata.body), "metadata", detail);
+  if (title || description || body) {
+    return result(title, description, body, method, detail);
+  }
+  if (oversized) {
+    throw new ExtractionError("body_too_large", "Response exceeds the 2 MiB limit and its prefix contained no useful metadata", detail, true);
   }
   throw new ExtractionError("insufficient_content", "Page contained no useful article text or metadata", detail, true);
 }
@@ -165,9 +227,9 @@ export async function fetchHtml(rawUrl: string): Promise<HtmlResponse> {
       continue;
     }
 
-    const body = await readLimited(response, url);
+    const bodyResult = await readLimited(response, url);
     const contentType = String(response.headers["content-type"] || "").toLowerCase();
-    const detail = { hostname: url.hostname, httpStatus: status || null, contentLength: body.byteLength };
+    const detail = { hostname: url.hostname, httpStatus: status || null, contentLength: bodyResult.contentLength };
     if (status === 403 || status === 429) {
       throw new ExtractionError("bot_block", `Origin returned HTTP ${status}`, detail);
     }
@@ -177,7 +239,7 @@ export async function fetchHtml(rawUrl: string): Promise<HtmlResponse> {
     if (!isHtmlContentType(contentType)) {
       throw new ExtractionError("non_html", `Unsupported content type: ${contentType || "missing"}`, detail, true);
     }
-    return { url, status, contentType, body };
+    return { url, status, contentType, ...bodyResult };
   }
 }
 
@@ -227,31 +289,38 @@ async function requestOnce(url: URL, deadline: number): Promise<http.IncomingMes
   });
 }
 
-async function readLimited(response: http.IncomingMessage, url: URL): Promise<Buffer> {
+async function readLimited(response: http.IncomingMessage, url: URL): Promise<{ body: Buffer; oversized: boolean; contentLength: number }> {
   const status = response.statusCode ?? null;
   const declared = Number(response.headers["content-length"]);
-  if (Number.isFinite(declared) && bodyIsOversized(declared)) {
-    response.destroy();
-    throw new ExtractionError("body_too_large", "Response exceeds the 2 MiB limit", detailFor(url, status, declared), true);
-  }
-
   const chunks: Buffer[] = [];
   let size = 0;
+  let retained = 0;
+  let oversized = Number.isFinite(declared) && bodyIsOversized(declared);
   try {
     for await (const raw of response) {
       const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
       size += chunk.byteLength;
-      if (bodyIsOversized(size)) {
-        response.destroy();
-        throw new ExtractionError("body_too_large", "Response exceeds the 2 MiB limit", detailFor(url, status, size), true);
+      const remaining = MAX_BODY_BYTES - retained;
+      if (remaining > 0) {
+        const kept = chunk.subarray(0, remaining);
+        chunks.push(kept);
+        retained += kept.byteLength;
       }
-      chunks.push(chunk);
+      if (bodyIsOversized(size) || retained === MAX_BODY_BYTES && oversized) {
+        oversized = true;
+        response.destroy();
+        break;
+      }
     }
   } catch (error) {
     if (error instanceof ExtractionError) throw error;
     throw new ExtractionError(transportFailureClass(error), messageOf(error), detailFor(url, status, size));
   }
-  return Buffer.concat(chunks, size);
+  return {
+    body: Buffer.concat(chunks, retained),
+    oversized,
+    contentLength: Number.isFinite(declared) ? declared : size,
+  };
 }
 
 export function isPublicAddress(address: string): boolean {
@@ -299,13 +368,16 @@ function asciiSample(source: string | Buffer): string {
   return Buffer.isBuffer(source) ? source.subarray(0, BOT_BLOCK_SAMPLE_BYTES).toString("latin1") : source;
 }
 
-function jsonLdArticle(dom: JSDOM): { title: string | null; body: string } | null {
+function jsonLdArticle(dom: JSDOM): { body: string; description: string } | null {
   for (const script of dom.window.document.querySelectorAll('script[type="application/ld+json"]')) {
     try {
       const root = JSON.parse(script.textContent || "") as unknown;
       for (const value of flattenJsonLd(root)) {
         if (typeof value.articleBody === "string") {
-          return { title: stringValue(value.headline) || stringValue(value.name), body: value.articleBody };
+          return {
+            body: value.articleBody,
+            description: typeof value.description === "string" ? value.description.trim() : "",
+          };
         }
       }
     } catch { /* A malformed JSON-LD block should not hide other fallbacks. */ }
@@ -320,33 +392,24 @@ function flattenJsonLd(value: unknown): Array<Record<string, unknown>> {
   return [record, ...flattenJsonLd(record["@graph"])];
 }
 
-function metadataArticle(dom: JSDOM): { title: string | null; body: string } {
-  const value = (selector: string) => dom.window.document.querySelector(selector)?.getAttribute("content")?.trim() || "";
-  return {
-    title: value('meta[property="og:title"]') || value('meta[name="twitter:title"]') || documentTitle(dom),
-    body: value('meta[property="og:description"]') || value('meta[name="description"]') || value('meta[name="twitter:description"]'),
-  };
-}
-
-function documentTitle(dom: JSDOM): string | null {
-  return dom.window.document.title.trim().slice(0, 300) || null;
-}
-
-function stringValue(value: unknown): string | null {
-  return typeof value === "string" ? value.slice(0, 300) : null;
-}
-
 interface ResponseDetail {
   hostname: string;
   httpStatus: number;
   contentLength: number;
 }
 
-function result(title: string | null, body: string, method: ExtractedArticle["method"], detail: ResponseDetail): ExtractedArticle {
+function result(
+  title: string | null,
+  description: string,
+  body: string,
+  method: ExtractedArticle["method"],
+  detail: ResponseDetail,
+): ExtractedArticle {
   return {
-    title: title?.slice(0, 300) || null,
+    title: title?.slice(0, MAX_TITLE_CHARACTERS) || null,
+    description: description.slice(0, MAX_DESCRIPTION_CHARACTERS),
     body,
-    excerpt: makeExcerpt(body),
+    excerpt: makeExcerpt(description || body),
     method,
     httpStatus: detail.httpStatus,
     contentLength: detail.contentLength,

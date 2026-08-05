@@ -138,7 +138,7 @@ function articleEmbed({ data }: RecentArticle, generated: string | undefined): D
     ? "Content extraction is still pending."
     : data.extractionStatus === "failed"
       ? "Milton could not extract this page; use the links below to review it directly."
-      : data.excerpt || "No summary is available for this page.";
+      : data.description || data.excerpt || "No summary is available for this page.";
   const discussion = `[Discord discussion](${data.latestOccurrence.messageUrl})`;
   return {
     title: truncate(data.title || data.domain, 100),

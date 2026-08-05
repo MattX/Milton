@@ -6,19 +6,25 @@ interface ParseRequest {
   url: string;
   status: number;
   contentType: string;
+  oversized: boolean;
+  contentLength: number;
 }
 
 if (!parentPort) throw new Error("Article parser must run in a worker thread");
 
-parentPort.once("message", (request: ParseRequest) => {
+parentPort.once("message", async (request: ParseRequest) => {
   try {
     const source = Buffer.from(request.source.buffer, request.source.byteOffset, request.source.byteLength);
-    parentPort!.postMessage({ ok: true, article: parseArticleHtml(source, new URL(request.url), request.status, request.contentType) });
+    const article = await parseArticleHtml(source, new URL(request.url), request.status, request.contentType, {
+      oversized: request.oversized,
+      contentLength: request.contentLength,
+    });
+    parentPort!.postMessage({ ok: true, article });
   } catch (error) {
     const failure = error instanceof ExtractionError ? error : new ExtractionError(
       "network_error",
       error instanceof Error ? error.message : "Unknown parser failure",
-      { hostname: new URL(request.url).hostname, httpStatus: request.status, contentLength: request.source.byteLength },
+      { hostname: new URL(request.url).hostname, httpStatus: request.status, contentLength: request.contentLength },
     );
     parentPort!.postMessage({
       ok: false,

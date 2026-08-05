@@ -21,7 +21,7 @@ export class OpenRouterSummarizer implements ArticleSummarizer {
   ) {}
 
   async summarize(articles: RecentArticle[]): Promise<Map<string, string>> {
-    const candidates = articles.filter(({ data }) => data.extractionStatus === "indexed" && Boolean(data.body || data.excerpt));
+    const candidates = articles.filter(({ data }) => data.extractionStatus === "indexed" && Boolean(data.body || data.description));
     if (!candidates.length) return new Map();
 
     const requestBody = {
@@ -34,7 +34,7 @@ export class OpenRouterSummarizer implements ArticleSummarizer {
         {
           role: "user",
           content: JSON.stringify(candidates.map(({ id, data }) => ({
-            articleId: id, title: data.title, domain: data.domain, text: data.body || data.excerpt,
+            articleId: id, title: data.title, domain: data.domain, text: data.body || data.description,
           }))),
         },
       ],

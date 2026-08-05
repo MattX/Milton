@@ -89,6 +89,22 @@ describe("recent articles", () => {
   });
 });
 
+describe("completed extraction persistence", () => {
+  it("stores description separately from body and keeps the description-first excerpt", async () => {
+    const { db, update } = transactionalDb(job({ status: "processing", taskGeneration: 2 }));
+
+    await new FirestoreRepository(db, "guild").completeExtraction("article", {
+      title: "Title", description: "Metadata description", body: "Readable body", excerpt: "Metadata description",
+      method: "readability", httpStatus: 200, contentLength: 100, hostname: "example.com",
+    }, 2);
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ collection: "articles", id: "article" }),
+      expect.objectContaining({ description: "Metadata description", body: "Readable body", excerpt: "Metadata description" }),
+    );
+  });
+});
+
 function job(values: Partial<ExtractionJobDocument>): ExtractionJobDocument {
   return {
     articleId: "article", priority: "live", status: "pending", attempts: 1,

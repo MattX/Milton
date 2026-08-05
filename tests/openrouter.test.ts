@@ -5,7 +5,7 @@ import type { Config, RecentArticle } from "../server/types";
 const article = {
   id: "article-1",
   data: {
-    title: "A story", domain: "example.com", body: "Untrusted article text", excerpt: "Excerpt", extractionStatus: "indexed",
+    title: "A story", domain: "example.com", body: "Untrusted article text", description: "Description", excerpt: "Excerpt", extractionStatus: "indexed",
   },
 } as RecentArticle;
 
@@ -45,10 +45,22 @@ describe("OpenRouter summaries", () => {
   it("does not call the model when no extracted content exists", async () => {
     const fetchFn = vi.fn();
     const result = await new OpenRouterSummarizer(config, fetchFn as typeof fetch).summarize([
-      { ...article, data: { ...article.data, body: "", excerpt: "", extractionStatus: "failed" } },
+      { ...article, data: { ...article.data, body: "", description: "", excerpt: "", extractionStatus: "failed" } },
     ]);
     expect(result.size).toBe(0);
     expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("summarizes description when a metadata-only article has no body", async () => {
+    const fetchFn = vi.fn().mockResolvedValue(Response.json({
+      choices: [{ message: { content: JSON.stringify({ summaries: [{ articleId: "article-1", summary: "Metadata summary." }] }) } }],
+    }));
+    await new OpenRouterSummarizer(config, fetchFn as typeof fetch).summarize([
+      { ...article, data: { ...article.data, body: "", description: "Only metadata is available", excerpt: "different" } },
+    ]);
+    const request = JSON.parse(String(fetchFn.mock.calls[0]![1].body));
+    expect(request.messages[1].content).toContain("Only metadata is available");
+    expect(request.messages[1].content).not.toContain("different");
   });
 
   it("retries a transient transport failure", async () => {

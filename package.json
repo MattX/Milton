@@ -13,6 +13,7 @@
     "preview": "npm run build && npm start",
     "bootstrap": "./scripts/bootstrap-gcp.sh",
     "deploy": "./scripts/deploy-gcp.sh",
+    "rebuild-index": "tsx server/rebuild-index-cli.ts",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "check": "npm run typecheck && npm run test && npm run build"
@@ -24,7 +25,10 @@
     "express": "^5.2.1",
     "google-auth-library": "^11.0.0",
     "ipaddr.js": "^2.4.0",
-    "jsdom": "^30.0.1"
+    "jsdom": "^30.0.1",
+    "metascraper": "^5.53.0",
+    "metascraper-description": "^5.53.0",
+    "metascraper-title": "^5.53.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

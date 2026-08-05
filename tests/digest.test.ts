@@ -16,6 +16,7 @@ function recent(index: number, status: ArticleDocument["extractionStatus"] = "in
       domain: "example.com",
       title: `Story ${index}`,
       body: `Body ${index}`,
+      description: `Description ${index}`,
       excerpt: `Excerpt ${index}`,
       extractionStatus: status,
       extractionMethod: status === "indexed" ? "readability" : null,
@@ -73,7 +74,7 @@ describe("digest execution", () => {
     }));
   });
 
-  it("queries the rolling period, falls back after an LLM failure, and releases the lock", async () => {
+  it("queries the rolling period, falls back to description after an LLM failure, and releases the lock", async () => {
     const articles = [recent(1)];
     const repository = {
       claimCommandLock: vi.fn().mockResolvedValue(true),
@@ -86,7 +87,7 @@ describe("digest execution", () => {
 
     expect(repository.listRecentArticles).toHaveBeenCalledWith("2026-07-27T12:00:00.000Z", 25);
     expect(responder.editOriginal).toHaveBeenCalledWith("token", expect.objectContaining({
-      embeds: [expect.objectContaining({ description: expect.stringContaining("Excerpt 1") })],
+      embeds: [expect.objectContaining({ description: expect.stringContaining("Description 1") })],
     }));
     expect(repository.releaseCommandLock).toHaveBeenCalledWith("digest-guild-200", "100");
   });

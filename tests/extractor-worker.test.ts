@@ -10,7 +10,7 @@ class FakeWorker extends EventEmitter {
 
 const metadata = { hostname: "example.com", httpStatus: 200, contentLength: 3 };
 const article: ExtractedArticle = {
-  title: "Story", body: "body", excerpt: "body", method: "readability",
+  title: "Story", description: "description", body: "body", excerpt: "description", method: "readability",
   httpStatus: 200, contentLength: 3, hostname: "example.com",
 };
 
@@ -24,8 +24,14 @@ function run(worker: FakeWorker, timeoutMs = 100) {
 describe("isolated article parsing", () => {
   it("returns a worker result and transfers only the exact response bytes", async () => {
     const worker = new FakeWorker();
-    worker.postMessage.mockImplementation((request: { source: Uint8Array }, transfer: ArrayBuffer[]) => {
+    worker.postMessage.mockImplementation((request: {
+      source: Uint8Array;
+      oversized: boolean;
+      contentLength: number;
+    }, transfer: ArrayBuffer[]) => {
       expect(request.source.byteLength).toBe(3);
+      expect(request.oversized).toBe(false);
+      expect(request.contentLength).toBe(3);
       expect(transfer[0]?.byteLength).toBe(3);
       queueMicrotask(() => worker.emit("message", { ok: true, article }));
     });

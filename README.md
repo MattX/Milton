@@ -2,7 +2,7 @@
 
 Milton is a private full-text search engine for links shared in Discord. It runs as one Node/TypeScript service on Cloud Run, stores its reconstructible index in Firestore Enterprise (Native mode), and sends extraction and interactive command work through Cloud Tasks queues.
 
-The service fetches server-rendered HTML directly. Mozilla Readability is tried first, followed by JSON-LD `articleBody` and OpenGraph/description metadata. A failed extraction remains a searchable title/domain/link record with its Discord backlink and a structured failure class. Chrome is intentionally not part of the initial deployment.
+The service fetches server-rendered HTML directly. Metascraper always attempts title and description extraction, independently of Mozilla Readability full-text extraction; JSON-LD `articleBody` is the body fallback. A metadata-only page is indexed successfully. A failed extraction remains a searchable title/domain/link record with its Discord backlink and a structured failure class. Chrome is intentionally not part of the initial deployment.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ The service fetches server-rendered HTML directly. Mozilla Readability is tried 
 - `milton-live-extraction` and `milton-history-extraction` are independent Cloud Tasks queues. Live reposts can promote pending historical jobs.
 - Signed Discord interactions are deferred into `milton-commands` and completed through interaction webhooks. `/digest` summarizes up to the newest 25 server-wide links from a rolling number of days.
 - A claimed extraction job holds a two-minute lease. A delivery that finds a live lease asks for redelivery instead of acknowledging work that may never have happened, and each poll requeues jobs whose worker died holding one.
-- Extraction enforces a 15-second wall-clock budget across DNS, redirects, and the body read, plus no more than five redirects, a 2 MiB response cap, HTML content-type checks, DNS pinning, and rejection of every hostname that resolves to any non-public address.
+- Extraction enforces a 15-second wall-clock budget across DNS, redirects, and the body read, plus no more than five redirects, a 2 MiB retained response prefix, HTML content-type checks, DNS pinning, and rejection of every hostname that resolves to any non-public address. Oversized HTML skips full-text extraction but can still be indexed from head metadata in that prefix.
 - Pages are decoded using their declared charset, not assumed to be UTF-8.
 - Bodies are capped at 32 KiB. Extraction method, hostname, status, content length, and failure class are stored with the article.
 - Discord membership is verified when a user signs in. Sessions last eight hours, so removal from the
@@ -104,7 +104,7 @@ Terraform owns the named `milton` Enterprise database with Firestore Native acce
 
 Cloud Run uses request-based billing, 1 vCPU, 1 GiB RAM, zero minimum/two maximum instances, concurrency 20, and a 300-second timeout that accommodates a full poll. Enterprise rejects the `(default)` database ID, so Milton uses the named database `milton`.
 
-The current Google Terraform provider provisions the preview text index over `title`, `domain`, and `body`. If the preview API rejects that resource in a future project, use the console fallback: Firestore → `milton` → Indexes, create one **Text** index for collection `articles`, query scope **Collection**, and those same three fields.
+The current Google Terraform provider provisions the preview text index over `title`, `domain`, `description`, and `body`. Terraform creates its replacement before destroying the old index and waits for readiness. If the preview API rejects that resource in a future project, use the console fallback: Firestore → `milton` → Indexes, create one **Text** index for collection `articles`, query scope **Collection**, and those same four fields.
 
 ## Discord application setup
 
@@ -127,10 +127,29 @@ Sign in as a configured administrator and select **Start historical backfill**. 
 
 ## Operations and acceptance
 
+To rebuild the disposable index from Discord history after deploying an extraction or text-index change:
+
+1. Deploy and wait for the replacement Firestore text index to become ready.
+2. Pause the `milton-poll` Cloud Scheduler job and wait until both pending and processing extraction-job counts reach zero.
+3. Set `GOOGLE_CLOUD_PROJECT` (and `FIRESTORE_DATABASE_ID` if it is not `milton`), then inspect the exact scope without changing data:
+
+   ```sh
+   npm run rebuild-index
+   ```
+
+4. Execute with an exact project-ID confirmation:
+
+   ```sh
+   npm run rebuild-index -- --execute --confirm-project=YOUR_PROJECT_ID
+   ```
+
+5. Resume `milton-poll`. The command preserves system state, command locks, and channel discovery; it deletes only `articles` and `extractionJobs`, rewinds every Discord cursor to include its live boundary, and enables backfill.
+
 - A URL repost updates the article's latest occurrence without duplicating the article or extraction job.
 - Cloud Tasks names are deterministic per job generation, claims and the three-attempt ceiling are transactional, and duplicate or obsolete deliveries are acknowledged. Parsing runs in a disposable 192 MB worker with a 20-second limit; parser resource exhaustion and other permanent failures become link-only records immediately.
 - Link-only records are not retried automatically. Sign in as an administrator and select **Retry failed extractions** to requeue them, for example after fixing an outage that failed a batch.
 - Review `extractionFailureClass` grouped by `extractionHostname` after the backfill. Test a browser on a representative 20-URL sample only if at least 20 useful JS-only failures, or more than 10% of useful links, fail HTTP extraction.
 - Verify representative phrase, exclusion, Unicode, and relevance searches; conversation backlinks; OAuth rejection outside the guild; cursor resumption; and discovery within roughly five minutes.
-- Run `/digest` with its seven-day default and an explicit `days` value. Verify that the public response contains no more than the newest 25 links, continues across at most three messages, and falls back to excerpts when OpenRouter is unavailable.
+- Run `/digest` with its seven-day default and an explicit `days` value. Verify that the public response contains no more than the newest 25 links, continues across at most three messages, and falls back to descriptions before body excerpts when OpenRouter is unavailable.
+- Acceptance-check a representative YouTube URL: it should be indexed with a Metascraper title and description, an empty body when Readability finds no article, and searchable terms from its description.
 - The two-instance cap and queue dispatch limits bound load. The $1 budget is an alert, not a hard spending cap.
