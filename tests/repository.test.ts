@@ -65,6 +65,42 @@ describe("recent articles", () => {
   });
 });
 
+describe("failed extractions", () => {
+  it("returns newest failures with their stored reason and article context", async () => {
+    const jobs = [
+      job({ articleId: "older", status: "failed", lastError: "Timed out", updatedAt: "2026-01-01T00:00:00.000Z" }),
+      job({ articleId: "newer", status: "failed", lastError: "HTTP request failed", updatedAt: "2026-02-01T00:00:00.000Z" }),
+    ];
+    const query = {
+      where: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      get: vi.fn().mockResolvedValue({ docs: jobs.map((value) => ({ data: () => value })) }),
+    };
+    const db = {
+      collection: vi.fn((collection: string) => collection === "extractionJobs"
+        ? query
+        : { doc: (id: string) => ({ collection, id }) }),
+      getAll: vi.fn(async (...refs: Array<{ id: string }>) => refs.map((ref) => ({
+        id: ref.id,
+        exists: true,
+        data: () => ({
+          title: `${ref.id} title`, normalizedUrl: `https://example.com/${ref.id}`, domain: "example.com",
+          extractionFailureClass: "http_error", extractionHttpStatus: 503,
+        }),
+      }))),
+    } as unknown as Firestore;
+
+    const result = await new FirestoreRepository(db, "guild").listFailedExtractions(50);
+
+    expect(query.where).toHaveBeenCalledWith("status", "==", "failed");
+    expect(query.limit).toHaveBeenCalledWith(50);
+    expect(result.map((failure) => failure.articleId)).toEqual(["newer", "older"]);
+    expect(result[0]).toMatchObject({
+      title: "newer title", reason: "HTTP request failed", failureClass: "http_error", httpStatus: 503,
+    });
+  });
+});
+
 describe("completed extraction persistence", () => {
   it("stores description separately from body and keeps the description-first excerpt", async () => {
     const { db, update } = transactionalDb(job({ status: "processing", taskGeneration: 2 }));

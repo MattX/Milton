@@ -101,6 +101,9 @@ app.get("/api/search", async (request, response) => {
 app.get("/api/admin/status", requireAdmin, async (_request, response) => {
   response.json(await repository.getAdminStatus());
 });
+app.get("/api/admin/failed-jobs", requireAdmin, async (_request, response) => {
+  response.json(await repository.listFailedExtractions(RETRY_JOBS_PER_REQUEST));
+});
 app.post("/api/admin/backfill", requireAdmin, async (_request, response) => {
   await repository.setBackfillEnabled(true);
   response.status(202).json({ enabled: true });

@@ -36,3 +36,16 @@ export interface AdminStatus {
   channelsComplete: number;
   channelsTotal: number;
 }
+
+export interface FailedJobResult {
+  articleId: string;
+  title: string;
+  url: string | null;
+  domain: string | null;
+  reason: string;
+  failureClass: string | null;
+  httpStatus: number | null;
+  attempts: number;
+  priority: "live" | "history";
+  failedAt: string;
+}

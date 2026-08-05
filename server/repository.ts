@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Firestore, Pipelines } from "@google-cloud/firestore";
-import type { AdminStatus, ArticleResult, SearchResponse } from "../shared/api.js";
+import type { AdminStatus, ArticleResult, FailedJobResult, SearchResponse } from "../shared/api.js";
 import { mapConcurrent } from "./concurrency.js";
 import { initialChannelCursor } from "./discord-cursors.js";
 import { decodeCursor, encodeNextCursor, normalizeSearchQuery } from "./search-query.js";
@@ -55,6 +55,7 @@ export interface Repository {
   claimCommandLock(lockId: string, ownerId: string, expiresAt: string): Promise<boolean>;
   releaseCommandLock(lockId: string, ownerId: string): Promise<void>;
   getAdminStatus(): Promise<AdminStatus>;
+  listFailedExtractions(limit: number): Promise<FailedJobResult[]>;
   setBackfillEnabled(enabled: boolean): Promise<void>;
   isBackfillEnabled(): Promise<boolean>;
   upsertChannels(values: ChannelDiscovery[]): Promise<void>;
@@ -234,6 +235,35 @@ export class FirestoreRepository implements Repository {
       channelsComplete: complete.data().count,
       channelsTotal: channels.data().count,
     };
+  }
+
+  async listFailedExtractions(limit: number): Promise<FailedJobResult[]> {
+    const snapshot = await this.db.collection("extractionJobs")
+      .where("status", "==", "failed").limit(limit).get();
+    const jobs = snapshot.docs.map((doc) => doc.data() as ExtractionJobDocument);
+    if (!jobs.length) return [];
+
+    const articleRefs = jobs.map((job) => this.db.collection("articles").doc(job.articleId));
+    const articleSnapshots = await this.db.getAll(...articleRefs);
+    const articles = new Map(articleSnapshots.flatMap((article) => article.exists
+      ? [[article.id, article.data() as ArticleDocument] as const]
+      : []));
+
+    return jobs.map((job): FailedJobResult => {
+      const article = articles.get(job.articleId);
+      return {
+        articleId: job.articleId,
+        title: article?.title || article?.domain || job.articleId,
+        url: article?.normalizedUrl || null,
+        domain: article?.domain || null,
+        reason: job.lastError || "No failure reason recorded",
+        failureClass: article?.extractionFailureClass || null,
+        httpStatus: article?.extractionHttpStatus ?? null,
+        attempts: job.attempts,
+        priority: job.priority,
+        failedAt: job.updatedAt,
+      };
+    }).sort((left, right) => right.failedAt.localeCompare(left.failedAt));
   }
 
   async setBackfillEnabled(enabled: boolean): Promise<void> {

@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import type {
   AdminStatus,
   ArticleResult,
+  FailedJobResult,
   SearchResponse,
   SessionUser,
 } from "../shared/api";
@@ -166,12 +167,19 @@ function ResultCard({ result }: { result: ArticleResult }) {
 
 function AdminPanel() {
   const [status, setStatus] = useState<AdminStatus | null>(null);
+  const [failedJobs, setFailedJobs] = useState<FailedJobResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      setStatus(await api<AdminStatus>("/api/admin/status"));
+      setError(null);
+      const [nextStatus, nextFailedJobs] = await Promise.all([
+        api<AdminStatus>("/api/admin/status"),
+        api<FailedJobResult[]>("/api/admin/failed-jobs"),
+      ]);
+      setStatus(nextStatus);
+      setFailedJobs(nextFailedJobs);
     } catch (caught) {
       setError(errorMessage(caught));
     }
@@ -217,13 +225,43 @@ function AdminPanel() {
             </>
           )}
           {status.failedJobs > 0 && (
-            <button className="primary-button" disabled={busy} onClick={() => void act("/api/admin/retry-failed")}>
-              {busy ? "Requeueing…" : "Retry failed extractions"}
-            </button>
+            <>
+              <div className="failed-jobs-heading">
+                <h3>Failed extractions</h3>
+                <span>{failedJobs?.length ?? 0} shown</span>
+              </div>
+              <div className="failed-job-list">
+                {failedJobs?.map((job) => <FailedJob key={job.articleId} job={job} />)}
+              </div>
+              <button className="primary-button" disabled={busy} onClick={() => void act("/api/admin/retry-failed")}>
+                {busy ? "Requeueing…" : "Retry failed extractions"}
+              </button>
+            </>
           )}
         </>
       )}
     </section>
+  );
+}
+
+function FailedJob({ job }: { job: FailedJobResult }) {
+  return (
+    <article className="failed-job">
+      <div className="failed-job-title">
+        {job.url
+          ? <a href={job.url} target="_blank" rel="noreferrer">{job.title}</a>
+          : <span>{job.title}</span>}
+        <span>{relativeDate(job.failedAt)}</span>
+      </div>
+      <p>{job.reason}</p>
+      <div className="failed-job-meta">
+        {job.failureClass && <span>{job.failureClass.replaceAll("_", " ")}</span>}
+        {job.httpStatus !== null && <span>HTTP {job.httpStatus}</span>}
+        <span>{job.attempts} {job.attempts === 1 ? "attempt" : "attempts"}</span>
+        <span>{job.priority === "live" ? "Live" : "Historical"}</span>
+        {job.domain && <span>{job.domain}</span>}
+      </div>
+    </article>
   );
 }
 
