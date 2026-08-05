@@ -76,7 +76,7 @@ app.post("/internal/extract", requireInternal(config), async (request, response)
     response.status(400).json({ error: "invalid_article_id" });
     return;
   }
-  if (generation !== undefined && (!Number.isSafeInteger(generation) || generation < 1)) {
+  if (!Number.isSafeInteger(generation) || generation < 1) {
     response.status(400).json({ error: "invalid_task_generation" });
     return;
   }

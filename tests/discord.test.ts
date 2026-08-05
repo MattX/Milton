@@ -21,7 +21,6 @@ describe("Discord archived-thread discovery", () => {
       archiveChannels: vi.fn().mockResolvedValue(undefined),
       listLiveChannels: vi.fn().mockResolvedValue([cursor]),
       updateCursor,
-      requeueStalledExtractions: vi.fn().mockResolvedValue([]),
       isBackfillEnabled: vi.fn().mockResolvedValue(false),
     } as unknown as Repository;
     const responses = new Map<string, unknown>([

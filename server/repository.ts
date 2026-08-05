@@ -63,10 +63,9 @@ export interface Repository {
   archiveChannels(channelIds: string[]): Promise<void>;
   updateCursor(channelId: string, values: Partial<ChannelCursorDocument>): Promise<void>;
   nextBackfillChannel(): Promise<ChannelCursorDocument | null>;
-  claimExtraction(articleId: string, generation?: number): Promise<ExtractionClaim>;
-  completeExtraction(articleId: string, outcome: ExtractedArticle, generation?: number): Promise<void>;
-  failExtraction(articleId: string, failure: ExtractionFailure, terminal: boolean, generation?: number): Promise<void>;
-  requeueStalledExtractions(staleBefore: Date, limit: number): Promise<QueuedJob[]>;
+  claimExtraction(articleId: string, generation: number): Promise<ExtractionClaim>;
+  completeExtraction(articleId: string, outcome: ExtractedArticle, generation: number): Promise<void>;
+  failExtraction(articleId: string, failure: ExtractionFailure, terminal: boolean, generation: number): Promise<void>;
   requeueFailedExtractions(limit: number): Promise<QueuedJob[]>;
   getDispatchableJob(articleId: string): Promise<QueuedJob | null>;
   markTaskDispatched(job: QueuedJob): Promise<void>;
@@ -142,10 +141,8 @@ export class FirestoreRepository implements Repository {
       if (article.extractionStatus !== "pending" || job?.status === "completed" || job?.status === "failed") return false;
       const effectivePriority = job?.priority === "live" || priority === "live" ? "live" : "history";
       const promotePending = job?.status === "pending" && job.priority === "history" && priority === "live";
-      // A legacy processing holder remains valid until its lease goes stale; only pending legacy
-      // work is migrated immediately.
-      const reserveGeneration = !job || (job.status === "pending" && job.taskGeneration === undefined) || promotePending;
-      const nextGeneration = reserveGeneration ? (job?.taskGeneration ?? 0) + 1 : job?.taskGeneration;
+      const reserveGeneration = !job || promotePending;
+      const nextGeneration = reserveGeneration ? (job?.taskGeneration ?? 0) + 1 : job.taskGeneration;
       transaction.set(jobRef, {
         articleId: id,
         // A live repost promotes a queued historical job.
@@ -156,9 +153,9 @@ export class FirestoreRepository implements Repository {
         processingStartedAt: job?.processingStartedAt ?? null,
         createdAt: job?.createdAt || now,
         updatedAt: now,
-        ...(nextGeneration === undefined ? {} : { taskGeneration: nextGeneration }),
-        taskPriority: reserveGeneration ? effectivePriority : (job.taskPriority ?? job.priority),
-        taskDispatchState: reserveGeneration ? "needs_dispatch" : (job.taskDispatchState ?? "dispatched"),
+        taskGeneration: nextGeneration,
+        taskPriority: reserveGeneration ? effectivePriority : job.taskPriority,
+        taskDispatchState: reserveGeneration ? "needs_dispatch" : job.taskDispatchState,
       } satisfies ExtractionJobDocument);
       // A processing promotion changes only the priority used by a later recovery; its holder stays valid.
       return (job?.status ?? "pending") === "pending"
@@ -262,18 +259,10 @@ export class FirestoreRepository implements Repository {
       const ref = refs[index]!;
       const existing = snapshots[index]!.data() as ChannelCursorDocument | undefined;
       if (existing) {
-        // A cursor with no live boundary was never seeded — it predates seeding at creation, or its
-        // channel was unreachable at the time. Repair it rather than polling from a missing cursor.
-        const repair = existing.liveAfterId ? null : initialChannelCursor(value.lastMessageId, Date.now());
-        const archiveRepair = existing.archivedThreadScanComplete === undefined
-          ? initialArchivedThreadScan(value.isThread)
-          : null;
         const renamed = existing.channelName !== value.channelName || existing.archived !== value.archived;
         // Only write when something actually changed; discovery runs every five minutes.
-        if (!renamed && !repair && !archiveRepair) continue;
-        writer.update(ref, {
-          channelName: value.channelName, archived: value.archived, ...repair, ...archiveRepair, updatedAt: now,
-        });
+        if (!renamed) continue;
+        writer.update(ref, { channelName: value.channelName, archived: value.archived, updatedAt: now });
       } else {
         writer.create(ref, {
           channelId: value.channelId,
@@ -323,7 +312,7 @@ export class FirestoreRepository implements Repository {
     return snapshot.empty ? null : (snapshot.docs[0]!.data() as ChannelCursorDocument);
   }
 
-  async claimExtraction(articleIdValue: string, generation?: number): Promise<ExtractionClaim> {
+  async claimExtraction(articleIdValue: string, generation: number): Promise<ExtractionClaim> {
     const articleRef = this.db.collection("articles").doc(articleIdValue);
     const jobRef = this.db.collection("extractionJobs").doc(articleIdValue);
     return this.db.runTransaction<ExtractionClaim>(async (transaction) => {
@@ -331,10 +320,7 @@ export class FirestoreRepository implements Repository {
       if (!articleSnap.exists || !jobSnap.exists) return { status: "settled" };
       const article = articleSnap.data() as ArticleDocument;
       const job = jobSnap.data() as ExtractionJobDocument;
-      // Legacy deliveries are accepted only while the job itself is still legacy.
-      if (generation !== job.taskGeneration || (generation === undefined) !== (job.taskGeneration === undefined)) {
-        return { status: "settled" };
-      }
+      if (generation !== job.taskGeneration) return { status: "settled" };
       if (article.extractionStatus === "indexed") {
         if (job.status !== "completed") {
           transaction.update(jobRef, {
@@ -370,7 +356,7 @@ export class FirestoreRepository implements Repository {
     });
   }
 
-  async completeExtraction(articleIdValue: string, outcome: ExtractedArticle, generation?: number): Promise<void> {
+  async completeExtraction(articleIdValue: string, outcome: ExtractedArticle, generation: number): Promise<void> {
     const now = new Date().toISOString();
     const articleRef = this.db.collection("articles").doc(articleIdValue);
     const jobRef = this.db.collection("extractionJobs").doc(articleIdValue);
@@ -388,7 +374,7 @@ export class FirestoreRepository implements Repository {
     });
   }
 
-  async failExtraction(articleIdValue: string, failure: ExtractionFailure, terminal: boolean, generation?: number): Promise<void> {
+  async failExtraction(articleIdValue: string, failure: ExtractionFailure, terminal: boolean, generation: number): Promise<void> {
     const now = new Date().toISOString();
     const articleRef = this.db.collection("articles").doc(articleIdValue);
     const jobRef = this.db.collection("extractionJobs").doc(articleIdValue);
@@ -412,8 +398,8 @@ export class FirestoreRepository implements Repository {
   async getDispatchableJob(articleIdValue: string): Promise<QueuedJob | null> {
     const snapshot = await this.db.collection("extractionJobs").doc(articleIdValue).get();
     const job = snapshot.data() as ExtractionJobDocument | undefined;
-    if (!job || job.status !== "pending" || job.taskDispatchState !== "needs_dispatch" || job.taskGeneration === undefined) return null;
-    return { articleId: job.articleId, priority: job.taskPriority ?? job.priority, generation: job.taskGeneration };
+    if (!job || job.status !== "pending" || job.taskDispatchState !== "needs_dispatch") return null;
+    return { articleId: job.articleId, priority: job.taskPriority, generation: job.taskGeneration };
   }
 
   async markTaskDispatched(job: QueuedJob): Promise<void> {
@@ -454,8 +440,8 @@ export class FirestoreRepository implements Repository {
         || current.processingStartedAt !== observed.processingStartedAt) return null;
 
       const priority = current.priority;
-      const alreadyReserved = current.taskGeneration !== undefined && current.taskDispatchState === "needs_dispatch";
-      const generation = alreadyReserved ? current.taskGeneration! : (current.taskGeneration ?? 0) + 1;
+      const alreadyReserved = current.taskDispatchState === "needs_dispatch";
+      const generation = alreadyReserved ? current.taskGeneration : current.taskGeneration + 1;
       const now = new Date().toISOString();
       if (current.attempts >= 3) {
         const article = articleSnap.data() as ArticleDocument;
@@ -469,7 +455,7 @@ export class FirestoreRepository implements Repository {
         return null;
       }
       if (alreadyReserved) {
-        return { articleId: current.articleId, priority: current.taskPriority ?? priority, generation };
+        return { articleId: current.articleId, priority: current.taskPriority, generation };
       }
       transaction.update(jobRef, {
         status: "pending", processingStartedAt: null, taskGeneration: generation,
@@ -479,56 +465,39 @@ export class FirestoreRepository implements Repository {
     });
   }
 
-  /**
-   * Recovers jobs whose worker died holding the lease. Cloud Tasks eventually gives up on a task,
-   * so without this sweep those articles would stay pending with nothing left to drive them.
-   */
-  async requeueStalledExtractions(staleBefore: Date, limit: number): Promise<QueuedJob[]> {
-    const snapshot = await this.db.collection("extractionJobs")
-      .where("status", "==", "processing")
-      .where("processingStartedAt", "<", staleBefore.toISOString())
-      .limit(limit).get();
-    const jobs = await Promise.all(snapshot.docs.map((doc) => this.reserveRecovery(doc.data() as ExtractionJobDocument)));
-    return jobs.filter((job): job is QueuedJob => job !== null);
-  }
-
   async requeueFailedExtractions(limit: number): Promise<QueuedJob[]> {
     const snapshot = await this.db.collection("extractionJobs")
       .where("status", "==", "failed").limit(limit).get();
-    return this.resetJobs(snapshot.docs.map((doc) => doc.data() as ExtractionJobDocument), true);
+    return this.resetFailedJobs(snapshot.docs.map((doc) => doc.data() as ExtractionJobDocument));
   }
 
-  /** Returns the jobs to re-enqueue. `clearHistory` also clears the link-only record on the article. */
-  private async resetJobs(jobs: ExtractionJobDocument[], clearHistory: boolean): Promise<QueuedJob[]> {
+  private async resetFailedJobs(jobs: ExtractionJobDocument[]): Promise<QueuedJob[]> {
     if (!jobs.length) return [];
     const reset: QueuedJob[] = [];
     await mapConcurrent(jobs, WRITE_CONCURRENCY, async (job) => {
-      const queued = await this.resetJob(job, clearHistory);
+      const queued = await this.resetFailedJob(job);
       if (queued) reset.push(queued);
     });
     return reset;
   }
 
-  private async resetJob(job: ExtractionJobDocument, clearHistory: boolean): Promise<QueuedJob | null> {
+  private async resetFailedJob(job: ExtractionJobDocument): Promise<QueuedJob | null> {
     const jobRef = this.db.collection("extractionJobs").doc(job.articleId);
     const articleRef = this.db.collection("articles").doc(job.articleId);
     return this.db.runTransaction(async (transaction) => {
       const currentSnap = await transaction.get(jobRef);
       const current = currentSnap.data() as ExtractionJobDocument | undefined;
       if (!current) return null;
-      const stillSelected = clearHistory
-        ? current.status === "failed"
-        : current.status === "processing" && current.processingStartedAt === job.processingStartedAt;
-      if (!stillSelected) return null;
+      if (current.status !== "failed") return null;
 
       // Firestore transactions require all reads before writes.
-      const articleSnap = clearHistory ? await transaction.get(articleRef) : null;
+      const articleSnap = await transaction.get(articleRef);
       const now = new Date().toISOString();
-      const generation = (current.taskGeneration ?? 0) + 1;
+      const generation = current.taskGeneration + 1;
       transaction.update(jobRef, {
         status: "pending", processingStartedAt: null, updatedAt: now,
         taskGeneration: generation, taskPriority: current.priority, taskDispatchState: "needs_dispatch",
-        ...(clearHistory ? { attempts: 0, lastError: null } : {}),
+        attempts: 0, lastError: null,
       });
       if (articleSnap?.exists) {
         transaction.update(articleRef, {

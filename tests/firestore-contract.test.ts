@@ -35,10 +35,11 @@ describe.skipIf(!repository)("Firestore Enterprise repository contract", () => {
     createdArticleIds.push(...await repository!.persistDiscordMessages([unicode], "unicode", "live"));
 
     const descriptionToken = `${token}descriptiononly`;
+    await repository!.claimExtraction(createdArticleIds[0]!, 1);
     await repository!.completeExtraction(createdArticleIds[0]!, {
       title: "Neutral title", description: descriptionToken, body: "", excerpt: descriptionToken,
       method: "metadata", httpStatus: 200, contentLength: 100, hostname: "example.com",
-    });
+    }, 1);
 
     const page1 = await repository!.search(`"${token} distributed systems" -legacy`, null);
     expect(page1.items).toHaveLength(20);

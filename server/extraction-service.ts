@@ -10,7 +10,7 @@ export class ExtractionService {
   ) {}
 
   /** Returns true when Cloud Tasks should redeliver this task. */
-  async run(articleId: string, generation?: number): Promise<boolean> {
+  async run(articleId: string, generation: number): Promise<boolean> {
     const claim = await this.repository.claimExtraction(articleId, generation);
     // Duplicate leases are acknowledged. Poll reconciliation owns abandoned-worker recovery.
     if (claim.status === "leased") return false;
@@ -18,8 +18,7 @@ export class ExtractionService {
 
     try {
       const outcome = await this.extractor(claim.article.normalizedUrl);
-      if (generation === undefined) await this.repository.completeExtraction(articleId, outcome);
-      else await this.repository.completeExtraction(articleId, outcome, generation);
+      await this.repository.completeExtraction(articleId, outcome, generation);
       return false;
     } catch (error) {
       const failure = error instanceof ExtractionError ? error : new ExtractionError(
@@ -33,8 +32,7 @@ export class ExtractionService {
         message: failure.message,
         ...failure.metadata,
       };
-      if (generation === undefined) await this.repository.failExtraction(articleId, storedFailure, terminal);
-      else await this.repository.failExtraction(articleId, storedFailure, terminal, generation);
+      await this.repository.failExtraction(articleId, storedFailure, terminal, generation);
       return !terminal;
     }
   }

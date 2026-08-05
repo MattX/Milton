@@ -31,8 +31,8 @@ describe("extraction task delivery", () => {
     const service = new ExtractionService(repository, alwaysThrows(
       new ExtractionError("timeout", "timed out", { hostname: "example.com", httpStatus: null, contentLength: null }),
     ));
-    expect(await service.run("article")).toBe(true);
-    expect(failExtraction).toHaveBeenCalledWith("article", expect.anything(), false);
+    expect(await service.run("article", 1)).toBe(true);
+    expect(failExtraction).toHaveBeenCalledWith("article", expect.anything(), false, 1);
   });
 
   it("turns retry exhaustion and permanent failures into link-only records", async () => {
@@ -40,28 +40,28 @@ describe("extraction task delivery", () => {
     const temporary = new ExtractionService(exhausted.repository, alwaysThrows(
       new ExtractionError("bot_block", "blocked", { hostname: "example.com", httpStatus: 403, contentLength: 20 }),
     ));
-    expect(await temporary.run("article")).toBe(false);
-    expect(exhausted.failExtraction).toHaveBeenCalledWith("article", expect.anything(), true);
+    expect(await temporary.run("article", 1)).toBe(false);
+    expect(exhausted.failExtraction).toHaveBeenCalledWith("article", expect.anything(), true, 1);
 
     const permanent = repositoryFor(claimAfter(1));
     const invalid = new ExtractionService(permanent.repository, alwaysThrows(
       new ExtractionError("non_html", "PDF", { hostname: "example.com", httpStatus: 200, contentLength: 20 }, true),
     ));
-    expect(await invalid.run("article")).toBe(false);
-    expect(permanent.failExtraction).toHaveBeenCalledWith("article", expect.anything(), true);
+    expect(await invalid.run("article", 1)).toBe(false);
+    expect(permanent.failExtraction).toHaveBeenCalledWith("article", expect.anything(), true, 1);
   });
 
   it("acknowledges a delivery whose work another attempt already settled", async () => {
     const { repository } = repositoryFor({ status: "settled" });
     const extractor = vi.fn();
-    expect(await new ExtractionService(repository, extractor).run("article")).toBe(false);
+    expect(await new ExtractionService(repository, extractor).run("article", 1)).toBe(false);
     expect(extractor).not.toHaveBeenCalled();
   });
 
   it("acknowledges a duplicate delivery while another worker holds the lease", async () => {
     const { repository } = repositoryFor({ status: "leased" });
     const extractor = vi.fn();
-    expect(await new ExtractionService(repository, extractor).run("article")).toBe(false);
+    expect(await new ExtractionService(repository, extractor).run("article", 1)).toBe(false);
     expect(extractor).not.toHaveBeenCalled();
   });
 });

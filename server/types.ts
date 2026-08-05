@@ -122,10 +122,9 @@ export interface DigestTaskPayload {
 export interface ExtractionJobDocument {
   articleId: string;
   priority: JobPriority;
-  /** Undefined only on documents created before generation-tracked tasks were introduced. */
-  taskGeneration?: number;
-  taskPriority?: JobPriority;
-  taskDispatchState?: "needs_dispatch" | "dispatched";
+  taskGeneration: number;
+  taskPriority: JobPriority;
+  taskDispatchState: "needs_dispatch" | "dispatched";
   status: JobStatus;
   attempts: number;
   lastError: string | null;
@@ -146,8 +145,7 @@ export interface ChannelCursorDocument {
   liveAfterId: string;
   backfillBeforeId: string | null;
   backfillComplete: boolean;
-  /** Oldest archived-thread page discovered so far. Undefined on pre-migration documents. */
-  archivedThreadScanBefore?: string | null;
-  archivedThreadScanComplete?: boolean;
+  archivedThreadScanBefore: string | null;
+  archivedThreadScanComplete: boolean;
   updatedAt: string;
 }

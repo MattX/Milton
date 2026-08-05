@@ -131,19 +131,17 @@ export class DiscordIngestion {
     const stale = new Date(Date.now() - LEASE_MS);
     const jobs = await this.repository.listRecoverableExtractions(stale, STALLED_JOBS_PER_RUN);
     await mapConcurrent(jobs, CHANNEL_CONCURRENCY, async (observed) => {
-      if (observed.taskGeneration !== undefined && observed.taskDispatchState === "needs_dispatch") {
+      if (observed.taskDispatchState === "needs_dispatch") {
         const reserved = await this.repository.reserveRecovery(observed);
         if (reserved) await this.dispatch(reserved);
         return;
       }
-      if (observed.taskGeneration !== undefined) {
-        const recorded = {
-          articleId: observed.articleId,
-          priority: observed.taskPriority ?? observed.priority,
-          generation: observed.taskGeneration,
-        };
-        if (await this.tasks.exists(recorded)) return;
-      }
+      const recorded = {
+        articleId: observed.articleId,
+        priority: observed.taskPriority,
+        generation: observed.taskGeneration,
+      };
+      if (await this.tasks.exists(recorded)) return;
       const reserved = await this.repository.reserveRecovery(observed);
       if (reserved) await this.dispatch(reserved);
     });
