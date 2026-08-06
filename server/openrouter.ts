@@ -75,7 +75,7 @@ export class OpenRouterSummarizer implements ArticleSummarizer {
           headers: {
             authorization: `Bearer ${this.config.openRouterApiKey}`,
             "content-type": "application/json",
-            "http-referer": this.config.serviceUrl,
+            "http-referer": this.config.publicUrl,
             "x-title": "Milton",
           },
           body: JSON.stringify(requestBody),

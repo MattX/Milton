@@ -148,11 +148,11 @@ function oauthFailure(response: Response, secure: boolean, message: string): voi
 
 /** Discord requires an exact redirect-URI match, so it comes from configuration, never the request. */
 function callbackUrl(config: Config): string {
-  return `${config.serviceUrl}/auth/callback`;
+  return `${config.publicUrl}/auth/callback`;
 }
 
 function isSecure(config: Config): boolean {
-  return config.serviceUrl.startsWith("https:");
+  return config.publicUrl.startsWith("https:");
 }
 
 function stringQuery(value: unknown): string | null {

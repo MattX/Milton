@@ -13,7 +13,7 @@ const config = {
   openRouterApiKey: "secret",
   openRouterModel: "openai/gpt-5.6-luna",
   openRouterReasoningEffort: "medium",
-  serviceUrl: "https://milton.example",
+  publicUrl: "https://milton.example",
 } as Config;
 
 describe("OpenRouter summaries", () => {

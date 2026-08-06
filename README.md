@@ -96,7 +96,7 @@ Then deploy the application:
 npm run deploy
 ```
 
-The deploy command verifies that all four secrets have an enabled version, builds a uniquely tagged image with Cloud Build, runs the full Terraform apply, and prints the service URL. It never reads, creates, or rotates secret payloads.
+The deploy command verifies that all four secrets have an enabled version, builds a uniquely tagged image with Cloud Build, runs the full Terraform apply, and prints the service URL. Terraform maps `milton.terbium.io` to Cloud Run while internal Scheduler and Task traffic continues to use the generated `run.app` URL. It never reads, creates, or rotates secret payloads.
 
 Subsequent deployments need only `npm run deploy`. Rotate a credential explicitly by rerunning its `gcloud secrets versions add` command and then deploying a new revision. Rotating `session-secret` signs all users out.
 

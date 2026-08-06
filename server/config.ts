@@ -6,11 +6,13 @@ export function splitConfig(value: string | undefined): string[] {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const projectId = required(env, "GOOGLE_CLOUD_PROJECT");
+  const serviceUrl = normalizedUrl(env.SERVICE_URL || "http://localhost:8080");
   return {
     projectId,
     firestoreDatabaseId: env.FIRESTORE_DATABASE_ID || "milton",
     location: env.GOOGLE_CLOUD_LOCATION || "us-central1",
-    serviceUrl: (env.SERVICE_URL || "http://localhost:8080").replace(/\/$/, ""),
+    serviceUrl,
+    publicUrl: normalizedUrl(env.PUBLIC_URL || serviceUrl),
     liveTaskQueue: env.LIVE_TASK_QUEUE || "milton-live-extraction",
     historyTaskQueue: env.HISTORY_TASK_QUEUE || "milton-history-extraction",
     commandTaskQueue: env.COMMAND_TASK_QUEUE || "milton-commands",
@@ -28,6 +30,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     openRouterReasoningEffort: reasoningEffort(env.OPENROUTER_REASONING_EFFORT),
     allowUnauthenticatedInternal: env.ALLOW_UNAUTHENTICATED_INTERNAL === "true",
   };
+}
+
+function normalizedUrl(value: string): string {
+  return value.replace(/\/$/, "");
 }
 
 function reasoningEffort(value: string | undefined): Config["openRouterReasoningEffort"] {

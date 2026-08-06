@@ -11,6 +11,7 @@ locals {
   ])
   service_name = "milton"
   service_url  = "https://milton-${data.google_project.milton.number}.${var.region}.run.app"
+  public_url   = "https://milton.terbium.io"
 }
 
 resource "google_project_service" "apis" {
@@ -267,6 +268,7 @@ resource "google_cloud_run_v2_service" "milton" {
           FIRESTORE_DATABASE_ID       = google_firestore_database.milton.name
           GOOGLE_CLOUD_LOCATION       = var.region
           SERVICE_URL                 = local.service_url
+          PUBLIC_URL                  = local.public_url
           LIVE_TASK_QUEUE             = google_cloud_tasks_queue.live.name
           HISTORY_TASK_QUEUE          = google_cloud_tasks_queue.history.name
           COMMAND_TASK_QUEUE          = google_cloud_tasks_queue.commands.name
@@ -317,6 +319,21 @@ resource "google_cloud_run_v2_service_iam_member" "public" {
   name     = google_cloud_run_v2_service.milton.name
   role     = "roles/run.invoker"
   member   = "allUsers"
+}
+
+resource "google_cloud_run_domain_mapping" "milton" {
+  project  = data.google_project.milton.project_id
+  name     = "milton.terbium.io"
+  location = google_cloud_run_v2_service.milton.location
+
+  metadata {
+    namespace = data.google_project.milton.project_id
+  }
+
+  spec {
+    route_name     = google_cloud_run_v2_service.milton.name
+    force_override = true
+  }
 }
 
 resource "google_cloud_scheduler_job" "poll" {

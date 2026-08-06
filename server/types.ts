@@ -3,6 +3,7 @@ export interface Config {
   firestoreDatabaseId: string;
   location: string;
   serviceUrl: string;
+  publicUrl: string;
   liveTaskQueue: string;
   historyTaskQueue: string;
   commandTaskQueue: string;
