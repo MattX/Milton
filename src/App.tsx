@@ -22,6 +22,7 @@ export default function App() {
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   const [error, setError] = useState<string | null>(null);
+  const isAdminPage = /^\/admin\/?$/.test(location.pathname);
 
   // Identifies the newest request so a slow "load more" cannot append its page
   // onto the results of a search submitted after it.
@@ -54,13 +55,13 @@ export default function App() {
     api<SessionResponse>("/api/session")
       .then((value) => {
         setSession(value);
-        if (value.authenticated) void loadResults("");
+        if (value.authenticated && !isAdminPage) void loadResults("");
       })
       .catch((caught) => {
         setSession({ authenticated: false });
         setError(errorMessage(caught));
       });
-  }, [loadResults]);
+  }, [isAdminPage, loadResults]);
 
   function submitSearch(event: FormEvent) {
     event.preventDefault();
@@ -80,18 +81,22 @@ export default function App() {
     return <LoginScreen error={new URLSearchParams(location.search).get("login_error") || error} />;
   }
 
+  if (isAdminPage) {
+    return (
+      <div className="page-shell">
+        <SiteHeader user={session.user} currentPage="admin" onLogout={logout} />
+        <main className="admin-page">
+          {session.user.isAdmin
+            ? <AdminPanel />
+            : <div className="notice error">You do not have access to this page.</div>}
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="page-shell">
-      <header className="site-header">
-        <a className="brand" href="/">Milton</a>
-        <div className="identity">
-          {session.user.avatarUrl
-            ? <img src={session.user.avatarUrl} alt="" />
-            : <span className="avatar-fallback">{session.user.displayName.slice(0, 1)}</span>}
-          <span>{session.user.displayName}</span>
-          <button className="text-button" onClick={() => void logout()}>Log out</button>
-        </div>
-      </header>
+      <SiteHeader user={session.user} currentPage="home" onLogout={logout} />
 
       <main>
         <section className="search-hero">
@@ -135,11 +140,43 @@ export default function App() {
             </button>
           )}
         </section>
-
-        {session.user.isAdmin && <AdminPanel />}
       </main>
 
     </div>
+  );
+}
+
+function SiteHeader({
+  user,
+  currentPage,
+  onLogout,
+}: {
+  user: SessionUser;
+  currentPage: "home" | "admin";
+  onLogout: () => Promise<void>;
+}) {
+  return (
+    <header className="site-header">
+      <a className="brand" href="/">Milton</a>
+      <div className="header-actions">
+        {user.isAdmin && (
+          <a
+            className="header-link"
+            href="/admin"
+            aria-current={currentPage === "admin" ? "page" : undefined}
+          >
+            Admin
+          </a>
+        )}
+        <div className="identity">
+          {user.avatarUrl
+            ? <img src={user.avatarUrl} alt="" />
+            : <span className="avatar-fallback">{user.displayName.slice(0, 1)}</span>}
+          <span>{user.displayName}</span>
+          <button className="text-button" onClick={() => void onLogout()}>Log out</button>
+        </div>
+      </div>
+    </header>
   );
 }
 

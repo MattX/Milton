@@ -35,6 +35,10 @@ a { color: inherit; }
   z-index: 10;
 }
 .brand, .screen-brand { font-family: "Newsreader", serif; font-size: 21px; font-weight: 600; line-height: 1; text-decoration: none; }
+.header-actions { display: flex; align-items: center; gap: 14px; }
+.header-link { color: var(--green); font-size: 13px; font-weight: 600; text-decoration: none; }
+.header-link:hover { text-decoration: underline; }
+.header-link[aria-current="page"] { text-decoration: underline; text-underline-offset: 4px; }
 .identity { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .identity img, .avatar-fallback { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
 .avatar-fallback { display: grid; place-items: center; background: var(--green-light); color: var(--green); font-weight: 700; }
@@ -78,7 +82,8 @@ h2, h3 { font-family: "Newsreader", Georgia, serif; }
 .empty-state h3 { color: var(--ink); font-size: 19px; margin: 4px; }
 .skeleton { height: 120px; background: linear-gradient(100deg, transparent 20%, rgba(255,255,255,.65) 45%, transparent 70%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
 
-.admin-panel { margin: 16px 0 32px; padding: 16px; border-radius: 10px; background: var(--paper); border: 1px solid var(--line); }
+.admin-page { padding-top: 18px; }
+.admin-panel { margin: 0 0 32px; padding: 16px; border-radius: 10px; background: var(--paper); border: 1px solid var(--line); }
 .admin-panel .section-heading { align-items: center; }
 .admin-panel h2 { font-size: 20px; }
 .metric-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; padding: 10px 0; }
