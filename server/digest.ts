@@ -5,19 +5,13 @@ import type { Config, DigestTaskPayload, RecentArticle } from "./types.js";
 const DISCORD_API = "https://discord.com/api/v10";
 const ARTICLE_LIMIT = 25;
 const LOCK_MS = 5 * 60_000;
-const EMBEDS_PER_MESSAGE = 10;
-const EMBED_CHARACTER_BUDGET = 5_900;
-
-interface DiscordEmbed {
-  title: string;
-  url?: string;
-  description: string;
-  footer: { text: string };
-}
+const MESSAGE_CHARACTER_LIMIT = 2_000;
+const SUMMARY_CHARACTER_LIMIT = 240;
+const SUPPRESS_EMBEDS = 1 << 2;
 
 interface DiscordMessagePayload {
   content?: string;
-  embeds?: DiscordEmbed[];
+  flags?: number;
   allowed_mentions: { parse: never[] };
 }
 
@@ -114,46 +108,39 @@ export function renderDigest(
   total: number,
   summaries: Map<string, string>,
 ): DiscordMessagePayload[] {
-  const embeds = articles.map((article) => articleEmbed(article, summaries.get(article.id)));
-  const chunks: DiscordEmbed[][] = [];
-  for (const embed of embeds) {
-    let chunk = chunks.at(-1);
-    if (!chunk || chunk.length >= EMBEDS_PER_MESSAGE || embedCharacters(chunk) + embedCharacters([embed]) > EMBED_CHARACTER_BUDGET) {
-      chunk = [];
-      chunks.push(chunk);
-    }
-    chunk.push(embed);
-  }
   const omitted = Math.max(0, total - articles.length);
   const heading = `**Link digest · last ${days} day${days === 1 ? "" : "s"}**\n${total} link${total === 1 ? "" : "s"} found${omitted ? `; showing the newest ${articles.length} (${omitted} omitted)` : ""}.`;
-  return chunks.map((chunk, index) => ({
-    content: index === 0 ? heading : `**Link digest continued · ${index + 1}/${chunks.length}**`,
-    embeds: chunk,
-    allowed_mentions: { parse: [] },
-  }));
+  const continuationHeading = "**Link digest · continued**";
+  const chunks: string[] = [];
+  let content = heading;
+  for (const article of articles) {
+    const bullet = articleBullet(article, summaries.get(article.id));
+    if (`${content}\n${bullet}`.length > MESSAGE_CHARACTER_LIMIT) {
+      chunks.push(content);
+      content = `${continuationHeading}\n${bullet}`;
+    } else {
+      content += `\n${bullet}`;
+    }
+  }
+  chunks.push(content);
+  return chunks.map((chunk) => message(chunk, true));
 }
 
-function articleEmbed({ data }: RecentArticle, generated: string | undefined): DiscordEmbed {
+function articleBullet({ data }: RecentArticle, generated: string | undefined): string {
   const fallback = data.extractionStatus === "pending"
     ? "Content extraction is still pending."
     : data.extractionStatus === "failed"
-      ? "Milton could not extract this page; use the links below to review it directly."
+      ? "Milton could not extract this page."
       : data.description || data.excerpt || "No summary is available for this page.";
-  const discussion = `[Discord discussion](${data.latestOccurrence.messageUrl})`;
-  return {
-    title: truncate(data.title || data.domain, 100),
-    ...(isDiscordUrl(data.normalizedUrl) ? { url: data.normalizedUrl } : {}),
-    description: `${truncate(escapeMarkdown(generated || fallback), 260)}\n${discussion}`,
-    footer: { text: truncate(`${data.domain} · ${formatDate(data.lastPostedAt)}`, 80) },
-  };
+  const title = escapeMarkdown(truncate(singleLine(data.title || data.domain), 100));
+  const summary = escapeMarkdown(truncate(singleLine(generated || fallback), SUMMARY_CHARACTER_LIMIT));
+  const page = markdownLink(title, data.normalizedUrl);
+  const discussion = markdownLink("discussion", data.latestOccurrence.messageUrl);
+  return `- ${page} — ${summary} (${discussion})`;
 }
 
-function embedCharacters(embeds: DiscordEmbed[]): number {
-  return embeds.reduce((sum, embed) => sum + embed.title.length + embed.description.length + embed.footer.text.length, 0);
-}
-
-function message(content: string): DiscordMessagePayload {
-  return { content, allowed_mentions: { parse: [] } };
+function message(content: string, suppressEmbeds = false): DiscordMessagePayload {
+  return { content, ...(suppressEmbeds ? { flags: SUPPRESS_EMBEDS } : {}), allowed_mentions: { parse: [] } };
 }
 
 function truncate(value: string, length: number): string {
@@ -164,16 +151,17 @@ function escapeMarkdown(value: string): string {
   return value.replace(/([\\*_~`|>\[\]()])/g, "\\$1");
 }
 
-function formatDate(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "unknown date" : date.toISOString().slice(0, 10);
+function singleLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
-function isDiscordUrl(value: string): boolean {
+function markdownLink(label: string, value: string): string {
   try {
     const url = new URL(value);
-    return (url.protocol === "https:" || url.protocol === "http:") && value.length <= 2_048;
+    if (url.protocol !== "https:" && url.protocol !== "http:") return label;
+    const destination = url.href.replaceAll("(", "%28").replaceAll(")", "%29");
+    return `[${label}](${destination})`;
   } catch {
-    return false;
+    return label;
   }
 }

@@ -36,27 +36,29 @@ function recent(index: number, status: ArticleDocument["extractionStatus"] = "in
 }
 
 describe("digest rendering", () => {
-  it("renders 25 links into three bounded public messages and reports omissions", () => {
+  it("renders 25 links as bounded plain-text bullets and reports omissions", () => {
     const articles = Array.from({ length: 25 }, (_, index) => recent(index));
     const summaries = new Map(articles.map(({ id }) => [id, "A concise generated summary."]));
     const messages = renderDigest(7, articles, 31, summaries);
 
-    expect(messages).toHaveLength(3);
-    expect(messages.map((item) => item.embeds?.length)).toEqual([10, 10, 5]);
     expect(messages[0]?.content).toContain("6 omitted");
+    expect(messages.length).toBeGreaterThan(1);
     for (const message of messages) {
       expect(message.allowed_mentions).toEqual({ parse: [] });
-      const characters = message.embeds!.reduce((sum, embed) => (
-        sum + embed.title.length + embed.description.length + embed.footer.text.length
-      ), 0);
-      expect(characters).toBeLessThanOrEqual(6_000);
+      expect(message.flags).toBe(4);
+      expect(message).not.toHaveProperty("embeds");
+      expect(message.content!.length).toBeLessThanOrEqual(2_000);
     }
+    const content = messages.map((message) => message.content).join("\n");
+    expect(content.match(/^- \[Story /gm)).toHaveLength(25);
+    expect(content).toContain("[Story 0](https://example.com/story-0)");
+    expect(content).toContain("[discussion](https://discord.com/channels/1/2/0)");
   });
 
   it("uses extraction-state fallbacks and computes rolling or all-history cutoffs", () => {
     const messages = renderDigest(1, [recent(1, "pending"), recent(2, "failed")], 2, new Map());
-    expect(messages[0]?.embeds?.[0]?.description).toContain("still pending");
-    expect(messages[0]?.embeds?.[1]?.description).toContain("could not extract");
+    expect(messages[0]?.content).toContain("still pending");
+    expect(messages[0]?.content).toContain("could not extract");
     expect(cutoff("2026-08-03T12:00:00.000Z", 7)).toBe("2026-07-27T12:00:00.000Z");
     expect(cutoff("2026-08-03T12:00:00.000Z", Number.MAX_SAFE_INTEGER)).toBeNull();
   });
@@ -87,7 +89,7 @@ describe("digest execution", () => {
 
     expect(repository.listRecentArticles).toHaveBeenCalledWith("2026-07-27T12:00:00.000Z", 25);
     expect(responder.editOriginal).toHaveBeenCalledWith("token", expect.objectContaining({
-      embeds: [expect.objectContaining({ description: expect.stringContaining("Description 1") })],
+      content: expect.stringContaining("Description 1"),
     }));
     expect(repository.releaseCommandLock).toHaveBeenCalledWith("digest-guild-200", "100");
   });
