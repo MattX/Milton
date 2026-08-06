@@ -35,6 +35,8 @@ export interface DiscordMessage {
   content: string;
   timestamp: string;
   author: DiscordUser;
+  /** Present on messages created through a webhook, including interaction responses. */
+  webhook_id?: string;
 }
 
 export interface DiscordChannel {

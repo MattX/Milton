@@ -13,6 +13,7 @@ The service fetches server-rendered HTML directly. Metascraper always attempts t
 - Each article embeds its latest Discord occurrence, so search results require no join.
 - `milton-live-extraction` and `milton-history-extraction` are independent Cloud Tasks queues. Live reposts can promote pending historical jobs.
 - Signed Discord interactions are deferred into `milton-commands` and completed through interaction webhooks. `/digest` summarizes up to the newest 25 server-wide links from a rolling number of days.
+- Messages authored by Milton or sent through its interaction webhook are excluded from ingestion, so digest page links and Discord backlinks cannot feed back into the index.
 - A claimed extraction job holds a two-minute lease. A delivery that finds a live lease asks for redelivery instead of acknowledging work that may never have happened, and each poll requeues jobs whose worker died holding one.
 - Extraction enforces a 15-second wall-clock budget across DNS, redirects, and the body read, plus no more than five redirects, a 2 MiB retained response prefix, HTML content-type checks, DNS pinning, and rejection of every hostname that resolves to any non-public address. Oversized HTML skips full-text extraction but can still be indexed from head metadata in that prefix.
 - Pages are decoded using their declared charset, not assumed to be UTF-8.
@@ -142,6 +143,8 @@ To rebuild the disposable index from Discord history after deploying an extracti
    ```sh
    npm run rebuild-index -- --execute --confirm-project=YOUR_PROJECT_ID
    ```
+
+The same rebuild removes links and occurrence metadata previously ingested from Milton's own digest messages. Deploy the ingestion filter first so the clean backfill does not reintroduce them.
 
 5. Resume `milton-poll`. The command preserves system state, command locks, and channel discovery; it deletes only `articles` and `extractionJobs`, rewinds every Discord cursor to include its live boundary, and enables backfill.
 

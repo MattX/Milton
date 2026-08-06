@@ -148,7 +148,12 @@ export class DiscordIngestion {
   }
 
   private async persistAndEnqueue(messages: DiscordMessage[], channelName: string, priority: JobPriority): Promise<void> {
-    const articleIds = await this.repository.persistDiscordMessages(messages, channelName, priority);
+    // Interaction responses are webhook messages authored by Milton. A digest repeats every page
+    // URL and Discord backlink it summarizes, so ingesting it would make the digest itself the
+    // latest occurrence and would also index those backlinks as articles.
+    const externalMessages = messages.filter((message) => !isMiltonMessage(message, this.config.discordApplicationId));
+    if (!externalMessages.length) return;
+    const articleIds = await this.repository.persistDiscordMessages(externalMessages, channelName, priority);
     await Promise.all(articleIds.map(async (articleId) => {
       const job = await this.repository.getDispatchableJob(articleId);
       if (job) await this.dispatch(job);
@@ -191,6 +196,10 @@ export class DiscordIngestion {
       console.error(`Milton ingestion step failed (${label})`, error);
     }
   }
+}
+
+export function isMiltonMessage(message: DiscordMessage, applicationId: string): boolean {
+  return message.author.id === applicationId || message.webhook_id === applicationId;
 }
 
 class DiscordApiError extends Error {
