@@ -1,4 +1,5 @@
 import { extractArticle, ExtractionError } from "./extractor.js";
+import { extractArchivedArticle } from "./internet-archive.js";
 import type { Repository } from "./repository.js";
 
 const MAX_ATTEMPTS = 3;
@@ -7,6 +8,7 @@ export class ExtractionService {
   constructor(
     private readonly repository: Repository,
     private readonly extractor: typeof extractArticle = extractArticle,
+    private readonly archiveExtractor: typeof extractArchivedArticle = extractArchivedArticle,
   ) {}
 
   /** Returns true when Cloud Tasks should redeliver this task. */
@@ -17,7 +19,9 @@ export class ExtractionService {
     if (claim.status === "settled") return false;
 
     try {
-      const outcome = await this.extractor(claim.article.normalizedUrl);
+      const outcome = claim.job.source === "internet_archive"
+        ? await this.archiveExtractor(claim.article.normalizedUrl, claim.article.latestOccurrence.postedAt)
+        : await this.extractor(claim.article.normalizedUrl);
       await this.repository.completeExtraction(articleId, outcome, generation);
       return false;
     } catch (error) {

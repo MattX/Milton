@@ -206,7 +206,7 @@ function AdminPanel() {
   const [status, setStatus] = useState<AdminStatus | null>(null);
   const [failedJobs, setFailedJobs] = useState<FailedJobResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -224,8 +224,8 @@ function AdminPanel() {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  async function act(path: string) {
-    setBusy(true);
+  async function act(path: string, action: string) {
+    setBusyAction(action);
     setError(null);
     try {
       await api(path, { method: "POST" });
@@ -233,7 +233,7 @@ function AdminPanel() {
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   }
 
@@ -256,7 +256,7 @@ function AdminPanel() {
           {!status.backfillEnabled && (
             <>
               <div className="notice">Backfill has not been started.</div>
-              <button className="primary-button" disabled={busy} onClick={() => void act("/api/admin/backfill")}>
+              <button className="primary-button" disabled={busyAction !== null} onClick={() => void act("/api/admin/backfill", "backfill")}>
                 Start historical backfill
               </button>
             </>
@@ -268,10 +268,18 @@ function AdminPanel() {
                 <span>{failedJobs?.length ?? 0} shown</span>
               </div>
               <div className="failed-job-list">
-                {failedJobs?.map((job) => <FailedJob key={job.articleId} job={job} />)}
+                {failedJobs?.map((job) => (
+                  <FailedJob
+                    key={job.articleId}
+                    job={job}
+                    disabled={busyAction !== null}
+                    retrying={busyAction === `archive:${job.articleId}`}
+                    onRetryArchive={() => act(`/api/admin/failed-jobs/${job.articleId}/retry-archive`, `archive:${job.articleId}`)}
+                  />
+                ))}
               </div>
-              <button className="primary-button" disabled={busy} onClick={() => void act("/api/admin/retry-failed")}>
-                {busy ? "Requeueing…" : "Retry failed extractions"}
+              <button className="primary-button" disabled={busyAction !== null} onClick={() => void act("/api/admin/retry-failed", "retry-all")}>
+                {busyAction === "retry-all" ? "Requeueing…" : "Retry failed extractions"}
               </button>
             </>
           )}
@@ -281,7 +289,17 @@ function AdminPanel() {
   );
 }
 
-function FailedJob({ job }: { job: FailedJobResult }) {
+function FailedJob({
+  job,
+  disabled,
+  retrying,
+  onRetryArchive,
+}: {
+  job: FailedJobResult;
+  disabled: boolean;
+  retrying: boolean;
+  onRetryArchive: () => Promise<void>;
+}) {
   return (
     <article className="failed-job">
       <div className="failed-job-title">
@@ -298,6 +316,13 @@ function FailedJob({ job }: { job: FailedJobResult }) {
         <span>{job.priority === "live" ? "Live" : "Historical"}</span>
         {job.domain && <span>{job.domain}</span>}
       </div>
+      {job.url && (
+        <div className="failed-job-actions">
+          <button className="text-button" disabled={disabled} onClick={() => void onRetryArchive()}>
+            {retrying ? "Requeueing…" : "Retry from Internet Archive"}
+          </button>
+        </div>
+      )}
     </article>
   );
 }

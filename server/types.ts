@@ -63,11 +63,13 @@ export interface LatestOccurrence {
 export type ExtractionStatus = "pending" | "indexed" | "failed";
 export type JobStatus = "pending" | "processing" | "completed" | "failed";
 export type JobPriority = "live" | "history";
+export type ExtractionSource = "origin" | "internet_archive";
 
 export type ExtractionFailureClass =
   | "invalid_url" | "private_address" | "dns_failure" | "timeout" | "redirect_limit"
   | "http_error" | "bot_block" | "non_html" | "body_too_large" | "malformed_html"
-  | "insufficient_content" | "network_error" | "parse_resource_limit" | "retry_exhausted";
+  | "insufficient_content" | "network_error" | "parse_resource_limit" | "retry_exhausted"
+  | "archive_unavailable";
 
 /** A successful extraction, as returned by the extractor and stored on the article. */
 export interface ExtractedArticle {
@@ -125,6 +127,8 @@ export interface DigestTaskPayload {
 export interface ExtractionJobDocument {
   articleId: string;
   priority: JobPriority;
+  /** Missing on legacy documents and treated as `origin`. */
+  source?: ExtractionSource;
   taskGeneration: number;
   taskPriority: JobPriority;
   taskDispatchState: "needs_dispatch" | "dispatched";

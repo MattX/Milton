@@ -11,6 +11,7 @@ import type {
   ExtractedArticle,
   ExtractionFailure,
   ExtractionJobDocument,
+  ExtractionSource,
   JobPriority,
   LatestOccurrence,
   RecentArticle,
@@ -68,6 +69,7 @@ export interface Repository {
   completeExtraction(articleId: string, outcome: ExtractedArticle, generation: number): Promise<void>;
   failExtraction(articleId: string, failure: ExtractionFailure, terminal: boolean, generation: number): Promise<void>;
   requeueFailedExtractions(limit: number): Promise<QueuedJob[]>;
+  requeueFailedExtraction(articleId: string, source: ExtractionSource): Promise<QueuedJob | null>;
   getDispatchableJob(articleId: string): Promise<QueuedJob | null>;
   markTaskDispatched(job: QueuedJob): Promise<void>;
   listRecoverableExtractions(staleBefore: Date, limit: number): Promise<ExtractionJobDocument[]>;
@@ -148,6 +150,7 @@ export class FirestoreRepository implements Repository {
         articleId: id,
         // A live repost promotes a queued historical job.
         priority: effectivePriority,
+        source: job?.source ?? "origin",
         status: job?.status || "pending",
         attempts: job?.attempts || 0,
         lastError: job?.lastError ?? null,
@@ -396,7 +399,9 @@ export class FirestoreRepository implements Repository {
       transaction.update(articleRef, {
         ...(outcome.title ? { title: outcome.title } : {}), description: outcome.description,
         body: outcome.body, excerpt: outcome.excerpt,
-        extractionStatus: "indexed", extractionMethod: outcome.method, extractionFailureClass: null,
+        extractionStatus: "indexed",
+        extractionMethod: job.source === "internet_archive" ? `internet-archive:${outcome.method}` : outcome.method,
+        extractionFailureClass: null,
         extractionHttpStatus: outcome.httpStatus, extractionContentLength: outcome.contentLength,
         extractionHostname: outcome.hostname, updatedAt: now,
       });
@@ -498,20 +503,26 @@ export class FirestoreRepository implements Repository {
   async requeueFailedExtractions(limit: number): Promise<QueuedJob[]> {
     const snapshot = await this.db.collection("extractionJobs")
       .where("status", "==", "failed").limit(limit).get();
-    return this.resetFailedJobs(snapshot.docs.map((doc) => doc.data() as ExtractionJobDocument));
+    return this.resetFailedJobs(snapshot.docs.map((doc) => doc.data() as ExtractionJobDocument), "origin");
   }
 
-  private async resetFailedJobs(jobs: ExtractionJobDocument[]): Promise<QueuedJob[]> {
+  async requeueFailedExtraction(articleIdValue: string, source: ExtractionSource): Promise<QueuedJob | null> {
+    const snapshot = await this.db.collection("extractionJobs").doc(articleIdValue).get();
+    const job = snapshot.data() as ExtractionJobDocument | undefined;
+    return job ? this.resetFailedJob(job, source) : null;
+  }
+
+  private async resetFailedJobs(jobs: ExtractionJobDocument[], source: ExtractionSource): Promise<QueuedJob[]> {
     if (!jobs.length) return [];
     const reset: QueuedJob[] = [];
     await mapConcurrent(jobs, WRITE_CONCURRENCY, async (job) => {
-      const queued = await this.resetFailedJob(job);
+      const queued = await this.resetFailedJob(job, source);
       if (queued) reset.push(queued);
     });
     return reset;
   }
 
-  private async resetFailedJob(job: ExtractionJobDocument): Promise<QueuedJob | null> {
+  private async resetFailedJob(job: ExtractionJobDocument, source: ExtractionSource): Promise<QueuedJob | null> {
     const jobRef = this.db.collection("extractionJobs").doc(job.articleId);
     const articleRef = this.db.collection("articles").doc(job.articleId);
     return this.db.runTransaction(async (transaction) => {
@@ -527,7 +538,7 @@ export class FirestoreRepository implements Repository {
       transaction.update(jobRef, {
         status: "pending", processingStartedAt: null, updatedAt: now,
         taskGeneration: generation, taskPriority: current.priority, taskDispatchState: "needs_dispatch",
-        attempts: 0, lastError: null,
+        source, attempts: 0, lastError: null,
       });
       if (articleSnap?.exists) {
         transaction.update(articleRef, {

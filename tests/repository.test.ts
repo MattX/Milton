@@ -99,6 +99,35 @@ describe("failed extractions", () => {
       title: "newer title", reason: "HTTP request failed", failureClass: "http_error", httpStatus: 503,
     });
   });
+
+  it("requeues one selected failure through the Internet Archive with a fresh generation", async () => {
+    const current = job({ status: "failed", attempts: 3, taskGeneration: 4, lastError: "Origin failed" });
+    const { db, update } = transactionalDb(current);
+
+    await expect(new FirestoreRepository(db, "guild")
+      .requeueFailedExtraction("article", "internet_archive"))
+      .resolves.toEqual({ articleId: "article", priority: "live", generation: 5 });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ collection: "extractionJobs", id: "article" }),
+      expect.objectContaining({
+        status: "pending", source: "internet_archive", attempts: 0, lastError: null,
+        taskGeneration: 5, taskDispatchState: "needs_dispatch",
+      }),
+    );
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ collection: "articles", id: "article" }),
+      expect.objectContaining({ extractionStatus: "pending", extractionFailureClass: null }),
+    );
+  });
+
+  it("does not requeue a selected job that is no longer failed", async () => {
+    const { db, update } = transactionalDb(job({ status: "processing" }));
+    await expect(new FirestoreRepository(db, "guild")
+      .requeueFailedExtraction("article", "internet_archive"))
+      .resolves.toBeNull();
+    expect(update).not.toHaveBeenCalled();
+  });
 });
 
 describe("completed extraction persistence", () => {
@@ -113,6 +142,22 @@ describe("completed extraction persistence", () => {
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({ collection: "articles", id: "article" }),
       expect.objectContaining({ description: "Metadata description", body: "Readable body", excerpt: "Metadata description" }),
+    );
+  });
+
+  it("records Internet Archive provenance on a successful extraction", async () => {
+    const { db, update } = transactionalDb(job({
+      status: "processing", taskGeneration: 2, source: "internet_archive",
+    }));
+
+    await new FirestoreRepository(db, "guild").completeExtraction("article", {
+      title: "Title", description: "Description", body: "Body", excerpt: "Description",
+      method: "readability", httpStatus: 200, contentLength: 100, hostname: "web.archive.org",
+    }, 2);
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ collection: "articles", id: "article" }),
+      expect.objectContaining({ extractionMethod: "internet-archive:readability", extractionStatus: "indexed" }),
     );
   });
 });
@@ -131,7 +176,11 @@ function transactionalDb(current: ExtractionJobDocument) {
   const update = vi.fn();
   const set = vi.fn();
   const db = {
-    collection: vi.fn((collection: string) => ({ doc: (id: string) => ({ collection, id }) })),
+    collection: vi.fn((collection: string) => ({ doc: (id: string) => ({
+      collection,
+      id,
+      get: vi.fn(async () => ({ exists: true, data: () => current })),
+    }) })),
     runTransaction: vi.fn(async (callback: (transaction: unknown) => Promise<unknown>) => callback({
       get: vi.fn(async (ref: { collection: string }) => ref.collection === "extractionJobs"
         ? { exists: true, data: () => current }

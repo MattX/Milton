@@ -116,6 +116,21 @@ app.post("/api/admin/retry-failed", requireAdmin, async (_request, response) => 
   });
   response.status(202).json({ requeued: jobs.length });
 });
+app.post("/api/admin/failed-jobs/:articleId/retry-archive", requireAdmin, async (request, response) => {
+  const articleId = request.params.articleId;
+  if (typeof articleId !== "string" || !/^[a-f0-9]{64}$/.test(articleId)) {
+    response.status(400).json({ error: "invalid_article_id" });
+    return;
+  }
+  const job = await repository.requeueFailedExtraction(articleId, "internet_archive");
+  if (!job) {
+    response.status(409).json({ error: "job_not_failed" });
+    return;
+  }
+  await taskEnqueuer.enqueue(job);
+  await repository.markTaskDispatched(job);
+  response.status(202).json({ requeued: true });
+});
 
 const sourceDir = path.dirname(fileURLToPath(import.meta.url));
 const staticDir = path.resolve(sourceDir, "../../dist");

@@ -6,15 +6,18 @@ import type { ArticleDocument, ExtractionJobDocument } from "../server/types";
 
 const article = {
   normalizedUrl: "https://example.com/story", domain: "example.com", extractionStatus: "pending",
+  latestOccurrence: { postedAt: "2024-05-06T12:34:56.000Z" },
 } as ArticleDocument;
 
 function repositoryFor(claim: ExtractionClaim) {
   const failExtraction = vi.fn().mockResolvedValue(undefined);
+  const completeExtraction = vi.fn().mockResolvedValue(undefined);
   const repository = {
     claimExtraction: vi.fn().mockResolvedValue(claim),
     failExtraction,
+    completeExtraction,
   } as unknown as Repository;
-  return { repository, failExtraction };
+  return { repository, failExtraction, completeExtraction };
 }
 
 function claimAfter(attempts: number): ExtractionClaim {
@@ -63,5 +66,20 @@ describe("extraction task delivery", () => {
     const extractor = vi.fn();
     expect(await new ExtractionService(repository, extractor).run("article", 1)).toBe(false);
     expect(extractor).not.toHaveBeenCalled();
+  });
+
+  it("uses the archived extractor only for an Internet Archive job", async () => {
+    const claimed = claimAfter(1);
+    if (claimed.status !== "claimed") throw new Error("expected claimed job");
+    claimed.job.source = "internet_archive";
+    const { repository, completeExtraction } = repositoryFor(claimed);
+    const originExtractor = vi.fn();
+    const archiveExtractor = vi.fn().mockResolvedValue({ method: "metadata" });
+
+    expect(await new ExtractionService(repository, originExtractor, archiveExtractor).run("article", 1)).toBe(false);
+
+    expect(originExtractor).not.toHaveBeenCalled();
+    expect(archiveExtractor).toHaveBeenCalledWith("https://example.com/story", "2024-05-06T12:34:56.000Z");
+    expect(completeExtraction).toHaveBeenCalledWith("article", { method: "metadata" }, 1);
   });
 });

@@ -104,6 +104,8 @@ h2, h3 { font-family: "Newsreader", Georgia, serif; }
 .failed-job p { margin: 6px 0; color: #7f3418; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
 .failed-job-meta { display: flex; flex-wrap: wrap; gap: 5px; color: var(--muted); font-size: 10px; }
 .failed-job-meta span { padding: 2px 5px; border-radius: 4px; background: #f3eee3; }
+.failed-job-actions { display: flex; justify-content: flex-end; margin-top: 7px; }
+.failed-job-actions .text-button { font-size: 11px; }
 
 .login-screen, .loading-screen { width: 100%; min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--paper); position: relative; }
 .screen-brand { position: absolute; top: 18px; left: 20px; }
