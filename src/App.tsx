@@ -6,6 +6,7 @@ import type {
   SearchResponse,
   SessionUser,
 } from "../shared/api";
+import { waybackUrl } from "./wayback";
 
 interface SessionResponse {
   authenticated: boolean;
@@ -181,6 +182,8 @@ function SiteHeader({
 }
 
 function ResultCard({ result }: { result: ArticleResult }) {
+  const archiveUrl = waybackUrl(result.url, result.latestOccurrence.postedAt);
+
   return (
     <article className="result-card">
       <div className="domain-line">
@@ -188,7 +191,18 @@ function ResultCard({ result }: { result: ArticleResult }) {
         <span>{result.domain}</span>
         <span className={`status ${result.extractionStatus}`}>{statusLabel(result.extractionStatus)}</span>
       </div>
-      <h3><a href={result.url} target="_blank" rel="noreferrer">{result.title}</a></h3>
+      <div className="title-line">
+        <h3><a href={result.url} target="_blank" rel="noreferrer">{result.title}</a></h3>
+        <a
+          className="archive-link"
+          href={archiveUrl}
+          target="_blank"
+          rel="noreferrer"
+          title="View the Internet Archive capture nearest the submission date"
+        >
+          web.archive.org ↗
+        </a>
+      </div>
       {result.excerpt && <p className="excerpt">{result.excerpt}</p>}
       <div className="result-actions">
         <a className="discussion-link" href={result.latestOccurrence.messageUrl} target="_blank" rel="noreferrer">
