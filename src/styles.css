@@ -65,9 +65,12 @@ h2, h3 { font-family: "Newsreader", Georgia, serif; }
 .status { margin-left: auto; padding: 2px 6px; border-radius: 20px; background: #ece8dd; }
 .status.indexed { color: var(--green); background: var(--green-light); }
 .status.failed { color: #984621; background: #fae3d7; }
-.result-card h3 { margin: 7px 0 4px; font-size: clamp(18px, 2.5vw, 22px); line-height: 1.12; }
+.title-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 7px 0 4px; }
+.result-card h3 { margin: 0; font-size: clamp(18px, 2.5vw, 22px); line-height: 1.12; }
 .result-card h3 a { text-decoration: none; }
 .result-card h3 a:hover { color: var(--green); }
+.archive-link { flex: 0 0 auto; color: var(--muted); font-family: "DM Sans", system-ui, sans-serif; font-size: 10px; font-weight: 500; text-decoration: none; }
+.archive-link:hover { color: var(--green); text-decoration: underline; }
 .excerpt { color: #5f5b52; font-size: 13px; line-height: 1.4; margin: 0 0 7px; max-width: 900px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .result-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 11px; font-weight: 600; }
 .discussion-link { color: var(--discord); text-decoration: none; }
