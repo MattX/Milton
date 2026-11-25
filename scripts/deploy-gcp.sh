@@ -44,6 +44,9 @@ done
 
 gcloud builds submit --project "$TF_VAR_project_id" --tag "$TF_VAR_container_image" .
 terraform -chdir=infra apply -auto-approve
+# Terraform ignores image changes on an existing service, so roll out the new image here.
+gcloud run services update milton --project "$TF_VAR_project_id" --region "$TF_VAR_region" \
+  --image "$TF_VAR_container_image"
 
 echo "Milton deployed at $(terraform -chdir=infra output -raw service_url)"
 echo "Discord interactions endpoint: $(terraform -chdir=infra output -raw discord_interactions_url)"

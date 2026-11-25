@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    # One rollout at a time; a running deployment is never interrupted.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+      - name: Build and push image
+        run: |
+          image="${REGION}-docker.pkg.dev/${PROJECT_ID}/milton/app:${GITHUB_SHA}"
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker build --tag "$image" .
+          docker push "$image"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+      - name: Deploy to Cloud Run
+        run: gcloud run services update milton --project "$PROJECT_ID" --region "$REGION" --image "$IMAGE"

@@ -7,7 +7,7 @@ locals {
     "artifactregistry.googleapis.com", "cloudbuild.googleapis.com", "cloudresourcemanager.googleapis.com",
     "firestore.googleapis.com", "run.googleapis.com", "secretmanager.googleapis.com",
     "cloudtasks.googleapis.com", "cloudscheduler.googleapis.com", "iamcredentials.googleapis.com",
-    "billingbudgets.googleapis.com",
+    "billingbudgets.googleapis.com", "iam.googleapis.com", "sts.googleapis.com",
   ])
   service_name = "milton"
   service_url  = "https://milton-${data.google_project.milton.number}.${var.region}.run.app"
@@ -305,6 +305,12 @@ resource "google_cloud_run_v2_service" "milton" {
         }
       }
     }
+  }
+
+  # The image only applies when the service is first created. After that, CI and
+  # scripts/deploy-gcp.sh roll out images with gcloud, which also sets the client fields.
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image, client, client_version]
   }
 
   depends_on = [

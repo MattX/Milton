@@ -7,3 +7,5 @@ output "service_url" { value = local.service_url }
 output "public_url" { value = local.public_url }
 output "oauth_callback_url" { value = "${local.public_url}/auth/callback" }
 output "discord_interactions_url" { value = "${local.public_url}/discord/interactions" }
+output "github_workload_identity_provider" { value = google_iam_workload_identity_pool_provider.github.name }
+output "deploy_service_account" { value = google_service_account.deployer.email }

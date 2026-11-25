@@ -17,6 +17,12 @@ variable "container_image" {
   type        = string
 }
 
+variable "github_repository_id" {
+  description = "Numeric ID of the GitHub repository allowed to deploy."
+  type        = string
+  default     = "255003830"
+}
+
 variable "discord_application_id" {
   type = string
 }

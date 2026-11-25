@@ -107,6 +107,28 @@ Cloud Run uses request-based billing, 1 vCPU, 1 GiB RAM, zero minimum/two maximu
 
 The current Google Terraform provider provisions the preview text index over `title`, `domain`, `description`, and `body`. Terraform creates its replacement before destroying the old index and waits for readiness. If the preview API rejects that resource in a future project, use the console fallback: Firestore → `milton` → Indexes, create one **Text** index for collection `articles`, query scope **Collection**, and those same four fields.
 
+## Continuous deployment
+
+GitHub Actions (`.github/workflows/ci.yml`) runs `npm run check` on pull requests and pushes to `master`. After the checks pass on a push to `master`, it builds the image, pushes it to Artifact Registry, and deploys a new Cloud Run revision. It authenticates through Workload Identity Federation, so no service account key is stored in GitHub.
+
+CI deploys only the application. Run `npm run deploy` for changes under `infra/`, new environment variables, or secret rotation. If a commit needs new infrastructure, apply it before pushing to `master`. `npm run deploy` also deploys your local working tree, so run it from an up-to-date checkout.
+
+One-time setup:
+
+1. Run `npm run deploy` to create the deployer identity.
+2. Copy the Terraform outputs into GitHub Actions repository variables:
+
+   ```sh
+   set -a
+   source .env.deploy
+   set +a
+
+   gh variable set GCP_PROJECT_ID --body "$TF_VAR_project_id"
+   gh variable set GCP_REGION --body "${TF_VAR_region:-us-central1}"
+   gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body "$(terraform -chdir=infra output -raw github_workload_identity_provider)"
+   gh variable set GCP_DEPLOY_SERVICE_ACCOUNT --body "$(terraform -chdir=infra output -raw deploy_service_account)"
+   ```
+
 ## Discord application setup
 
 In the Discord Developer Portal:
