@@ -25,7 +25,7 @@ TF_VAR_container_image="${TF_VAR_region}-docker.pkg.dev/${TF_VAR_project_id}/mil
 GOOGLE_CLOUD_QUOTA_PROJECT="$TF_VAR_project_id"
 export TF_VAR_region TF_VAR_container_image GOOGLE_CLOUD_QUOTA_PROJECT
 
-terraform -chdir=infra init
+terraform -chdir=infra init -backend-config="bucket=${TF_VAR_project_id}-tfstate"
 
 secret_has_version() {
   [[ -n "$(gcloud secrets versions list "$1" \
