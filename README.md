@@ -72,7 +72,7 @@ cp .env.deploy.example .env.deploy
 # Edit .env.deploy and fill in every required value.
 ```
 
-Bootstrap the required APIs, Artifact Registry repository, and empty Secret Manager containers:
+Bootstrap the Terraform state bucket, required APIs, Artifact Registry repository, and empty Secret Manager containers:
 
 ```sh
 npm run bootstrap
@@ -101,7 +101,11 @@ The deploy command verifies that all four secrets have an enabled version, build
 
 Subsequent deployments need only `npm run deploy`. Rotate a credential explicitly by rerunning its `gcloud secrets versions add` command and then deploying a new revision. Rotating `session-secret` signs all users out.
 
-Terraform owns the named `milton` Enterprise database with Firestore Native access explicitly enabled and MongoDB-compatible access disabled, all indexes, Artifact Registry, Cloud Run, queues, service accounts, IAM, secret containers, Scheduler, and the $1 monthly budget. Secret payloads never enter Terraform state or version control. State is local under `infra/` by default; configure a GCS backend before using this as a multi-operator deployment.
+Terraform owns the named `milton` Enterprise database with Firestore Native access explicitly enabled and MongoDB-compatible access disabled, all indexes, Artifact Registry, Cloud Run, queues, service accounts, IAM, secret containers, Scheduler, and the $1 monthly budget. Secret payloads never enter Terraform state or version control. Terraform state lives in the `<project-id>-tfstate` Cloud Storage bucket, under the `milton/` prefix. `npm run bootstrap` creates that bucket with object versioning and public access prevention; Terraform does not manage it. To run Terraform directly in a new checkout, first initialize it:
+
+```sh
+terraform -chdir=infra init -backend-config="bucket=YOUR_PROJECT_ID-tfstate"
+```
 
 Cloud Run uses request-based billing, 1 vCPU, 1 GiB RAM, zero minimum/two maximum instances, concurrency 20, and a 300-second timeout that accommodates a full poll. Enterprise rejects the `(default)` database ID, so Milton uses the named database `milton`.
 
